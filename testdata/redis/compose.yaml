@@ -1,0 +1,30 @@
+services:
+  standalone:
+    image: ${REDIS_IMAGE}
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports: ["16379:6379"]
+  sentinel-master:
+    image: ${REDIS_IMAGE}
+    command: ["redis-server", "--save", "", "--appendonly", "no"]
+    ports: ["16380:6379"]
+  sentinel:
+    image: ${REDIS_IMAGE}
+    depends_on: [sentinel-master]
+    command: ["sh", "-c", "until redis-cli -h sentinel-master -p 6379 role >/dev/null; do sleep 1; done; printf 'sentinel resolve-hostnames yes\\nsentinel monitor mymaster sentinel-master 6379 1\\nsentinel down-after-milliseconds mymaster 5000\\n' >/tmp/sentinel.conf; redis-sentinel /tmp/sentinel.conf"]
+    ports: ["26379:26379"]
+  cluster-1:
+    image: ${REDIS_IMAGE}
+    command: ["redis-server", "--cluster-enabled", "yes", "--cluster-config-file", "nodes.conf", "--cluster-node-timeout", "5000", "--appendonly", "no"]
+    ports: ["17001:6379"]
+  cluster-2:
+    image: ${REDIS_IMAGE}
+    command: ["redis-server", "--cluster-enabled", "yes", "--cluster-config-file", "nodes.conf", "--cluster-node-timeout", "5000", "--appendonly", "no"]
+    ports: ["17002:6379"]
+  cluster-3:
+    image: ${REDIS_IMAGE}
+    command: ["redis-server", "--cluster-enabled", "yes", "--cluster-config-file", "nodes.conf", "--cluster-node-timeout", "5000", "--appendonly", "no"]
+    ports: ["17003:6379"]
+  cluster-init:
+    image: ${REDIS_IMAGE}
+    depends_on: [cluster-1, cluster-2, cluster-3]
+    command: ["sh", "-c", "sleep 3 && redis-cli --cluster create cluster-1:6379 cluster-2:6379 cluster-3:6379 --cluster-replicas 0 --cluster-yes"]

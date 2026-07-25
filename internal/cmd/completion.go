@@ -14,16 +14,16 @@ func newCompletionCommand(streams IOStreams) *cobra.Command {
 		Long: `To load completions:
 
   Bash:
-    source <(mcp-server completion bash)
+    source <(redis-mcp-server completion bash)
 
   Zsh:
-    source <(mcp-server completion zsh)
+    source <(redis-mcp-server completion zsh)
 
   Fish:
-    mcp-server completion fish | source
+    redis-mcp-server completion fish | source
 
   PowerShell:
-    mcp-server completion powershell | Out-String | Invoke-Expression`,
+    redis-mcp-server completion powershell | Out-String | Invoke-Expression`,
 		DisableFlagsInUseLine: true,
 		ValidArgs:             []string{"bash", "zsh", "fish", "powershell", "install"},
 		Args:                  cobra.MatchAll(cobra.ExactArgs(1), cobra.OnlyValidArgs),
@@ -52,15 +52,15 @@ func printCompletionInstall(out io.Writer) error {
 	_, err := fmt.Fprintln(out, `# Add the appropriate line to your shell profile:
 
 # bash (~/.bashrc or ~/.bash_profile):
-source <(mcp-server completion bash)
+source <(redis-mcp-server completion bash)
 
 # zsh (~/.zshrc):
-source <(mcp-server completion zsh)
+source <(redis-mcp-server completion zsh)
 
 # fish (~/.config/fish/config.fish):
-mcp-server completion fish | source
+redis-mcp-server completion fish | source
 
 # PowerShell ($PROFILE):
-mcp-server completion powershell | Out-String | Invoke-Expression`)
+redis-mcp-server completion powershell | Out-String | Invoke-Expression`)
 	return err
 }

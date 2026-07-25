@@ -1,195 +1,55 @@
-# MCP Server Template
+# Redis MCP Server
 
 [English](README.md)
 
-可 clone 的最小 MCP（Model Context Protocol）server 骨架。同一二进制同时提供给 AI 助手用的 **MCP server**，以及给人用的小型 **CLI**。内置示例工具 `echo` / `ping`。
+Redis MCP Server 通过 MCP 和 CLI 提供封闭的 Redis 语义数据面工具。支持显式 standalone、Cluster、Sentinel 配置。默认只注册读取工具；只有 `redis.write_enabled=true` 才注册写工具。
 
 ## 快速开始
 
 ```bash
-# 需要 Go 1.25+（见 .tool-versions）
 make build
-./bin/mcp-server version
-
-# 启动 MCP server（默认 stdio）
-./bin/mcp-server mcp
-
-# 不经过 MCP 客户端，直接用 CLI 列工具 / 调工具
-./bin/mcp-server tools list
-./bin/mcp-server tools call echo --params '{"message":"hello"}'
-./bin/mcp-server tools call ping --params '{}'
+./bin/redis-mcp-server tools list --config config.example.yaml
+./bin/redis-mcp-server tools describe redis_string --config config.example.yaml
+./bin/redis-mcp-server tools call redis_string --config config.example.yaml \
+  --params '{"operation":"get","args":{"key":"sample"}}'
 ```
 
-## 功能
+读取目录包含 `redis_key`、`redis_string`、`redis_hash`、`redis_list`、`redis_set`、`redis_sorted_set`、`redis_stream`、`redis_observe`。写模式额外注册七个对应的 `*_write` 工具；项目不提供 raw command、`Do` 入口或 `redis_observe_write`。
 
-- **子命令 CLI**：`mcp` 才启动 server；`tools` / `version` / `completion` 独立
-- **多传输**：stdio、Streamable HTTP、SSE
-- **工具过滤**：`--enabled-tools`、`--disabled-tools`、`--enable-domains`、`--disable-domains`
-- **工程化默认项**：Makefile、Dockerfile、GitHub Actions CI、golangci-lint、MIT License
-
-## CLI 命令
-
-| 命令 | 作用 |
-|------|------|
-| `mcp-server mcp` | 启动 MCP server（stdio 或 HTTP） |
-| `mcp-server tools list` | 列出已启用工具 |
-| `mcp-server tools describe <name>` | 查看工具 schema |
-| `mcp-server tools call <name>` | 用 JSON 参数调用工具 |
-| `mcp-server version` | 打印构建信息 |
-| `mcp-server completion <shell>` | 生成 shell 补全脚本 |
-
-### tools 示例
-
-```bash
-./bin/mcp-server tools list
-./bin/mcp-server tools list --json
-./bin/mcp-server tools describe echo
-./bin/mcp-server tools describe echo --json
-./bin/mcp-server tools call echo --params '{"message":"hello"}'
-echo '{"message":"hello"}' | ./bin/mcp-server tools call echo --params-file -
-./bin/mcp-server tools call ping --params '{}'
-```
-
-## MCP 传输模式
-
-### Stdio（默认）
-
-```bash
-./bin/mcp-server mcp
-```
-
-Cursor / Claude Desktop 配置示例：
-
-```json
-{
-  "mcpServers": {
-    "mcp-server-template": {
-      "command": "/absolute/path/to/bin/mcp-server",
-      "args": ["mcp"]
-    }
-  }
-}
-```
-
-### Streamable HTTP
-
-```bash
-./bin/mcp-server mcp --port 8080
-curl -s http://127.0.0.1:8080/healthz
-```
-
-客户端配置示例：
-
-```json
-{
-  "mcpServers": {
-    "mcp-server-template": {
-      "url": "http://127.0.0.1:8080/mcp"
-    }
-  }
-}
-```
-
-### SSE
-
-与 HTTP 模式同一进程。端点：
-
-| 路径 | 用途 |
-|------|------|
-| `/healthz` | 健康检查（`GET`/`HEAD`） |
-| `/mcp` | Streamable HTTP |
-| `/sse` | SSE 连接 |
-| `/message` | SSE message endpoint |
-
-```bash
-./bin/mcp-server mcp --port 8080 --sse-base-url http://127.0.0.1:8080
-```
-
-### Docker
-
-```bash
-# 构建
-make docker
-
-# Stdio（默认 ENTRYPOINT 为 mcp-server mcp）
-docker run -i --rm mcp-server-template:dev
-
-# HTTP
-docker run --rm -p 8080:8080 mcp-server-template:dev --port 8080 --listen 0.0.0.0
-```
-
-HTTP / SSE **无鉴权、无 TLS**。默认 `--listen 127.0.0.1`。仅在受信网络使用；对外暴露时请自行加反向代理与认证。
+所有集合结果会在访问 Redis 前被限制为 1–1000 项。`SCAN`、`HSCAN`、`SSCAN`、`ZSCAN` 返回固定长度的 opaque base64url 续页引用，不会暴露 Redis 原生 cursor 或缓冲值。一次成功续页后，该引用的空闲有效期为 5 分钟；每个 adapter 最多保存 1,000 个 session、16 MiB 编码状态，并按 LRU 整体淘汰 session。已过期或被淘汰的引用返回 `cursor_expired`；无法接纳的新续页返回 `cursor_unavailable`。Stream 不提供 entry 读取；目录仅保留长度、受限的 pending 查询与 `XCLAIM JUSTID`。
 
 ## 配置
 
-优先级：**flags > 环境变量 > 配置文件 > 默认值**。
-
-### 环境变量
-
-| 变量 | 说明 | 默认 |
-|------|------|------|
-| `MCP_LOG_LEVEL` | 日志级别 | `info` |
-| `MCP_PORT` | HTTP 端口（`0` = stdio） | `0` |
-| `MCP_LISTEN` | HTTP 监听地址 | `127.0.0.1` |
-| `MCP_SSE_BASE_URL` | 对外 SSE base URL | `""` |
-
-### 配置文件
-
-见 `config.example.yaml`：
+Redis topology 必须显式指定。密码只从 `MCP_REDIS_PASSWORD` 读取，不能写入 YAML。
 
 ```yaml
-port: 0
-listen: 127.0.0.1
-sse_base_url: ""
-log_level: info
-enabled_tools: []
-disabled_tools: []
-enabled_domains: []
-disabled_domains: []
+redis:
+  topology: standalone # standalone | cluster | sentinel
+  addresses: ["127.0.0.1:6379"]
+  username: ""
+  tls: false
+  sentinel_master: ""
+  write_enabled: false
 ```
+
+Sentinel 必须设置 `sentinel_master`；Cluster 使用 `addresses` 作为 seed；Sentinel 使用它作为 Sentinel endpoint。
+
+## 传输与部署
 
 ```bash
-./bin/mcp-server mcp --config config.example.yaml --port 8080
+./bin/redis-mcp-server mcp --config config.example.yaml
+./bin/redis-mcp-server mcp --config config.example.yaml --port 8080
 ```
 
-## 目录结构
-
-```
-cmd/mcp-server/          # 入口
-internal/cmd/            # cobra CLI（mcp / tools / version / completion）
-pkg/core/                # config / logging / version
-pkg/server/mcp/          # MCP 注册与 transport
-pkg/server/http/         # HTTP / SSE / healthz
-pkg/toolset/             # Toolset 接口与过滤
-pkg/toolset/example/     # 示例 tools（替换为你的业务）
-.github/workflows/       # CI
-```
-
-## 扩展自己的 tools
-
-1. 在 `pkg/toolset/<your-domain>/` 实现 `toolset.Toolset`。
-2. 在 `internal/cmd/root.go` 的 `defaultToolsets()` 中挂载。
-3. 用 `--enabled-tools` / `--enable-domains` 控制暴露面。
+项目保留 Streamable HTTP 和 SSE。若公开 HTTP/SSE，外部 fail-closed 认证边界必须在请求到达本服务前拒绝未认证请求。本仓库不实现认证、网关集成，也不解析或信任认证头。
 
 ## 开发
 
 ```bash
-make tidy
-make format
-make lint
 make test
-make coverage
-make ci
+make lint
 make build
-make docker
+make integration
 ```
 
-CI（`.github/workflows/build.yaml`）会跑 lint、带 race 的测试与覆盖率上传、多 OS 构建、CLI smoke（`version` / `tools list`）以及 Docker 镜像构建。
-
-## 本地对照样例
-
-`third-party-projects/` 可放置本地对照代码，已在 `.gitignore` 中，不属于模板交付物。
-
-## License
-
-[MIT](LICENSE)
+`make integration` 使用 `testdata/redis/images.lock` 固定的 Redis 8.8.1 镜像启动 standalone、Cluster、Sentinel。Docker、镜像、网络、compose 或集成测试失败时，该 target 必须失败。

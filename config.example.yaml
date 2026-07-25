@@ -6,3 +6,10 @@ enabled_tools: []
 disabled_tools: []
 enabled_domains: []
 disabled_domains: []
+redis:
+  topology: standalone
+  addresses: ["127.0.0.1:6379"]
+  username: ""
+  tls: false
+  sentinel_master: ""
+  write_enabled: false

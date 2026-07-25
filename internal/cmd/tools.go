@@ -12,7 +12,8 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"github.com/futuretea/mcp-server-template/pkg/toolset"
+	"github.com/futuretea/redis-mcp-server/internal/toolcatalog"
+	"github.com/futuretea/redis-mcp-server/pkg/toolset"
 )
 
 func newToolsCommand(streams IOStreams, cfgFile *string, v *viper.Viper) *cobra.Command {
@@ -32,8 +33,8 @@ func newToolsListCommand(streams IOStreams, cfgFile *string, v *viper.Viper) *co
 	command := &cobra.Command{
 		Use:   "list",
 		Short: "list enabled tools",
-		Example: `  mcp-server tools list
-  mcp-server tools list --json`,
+		Example: `  redis-mcp-server tools list
+  redis-mcp-server tools list --json`,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := loadCLIConfig(cmd, *cfgFile, v)
 			if err != nil {
@@ -59,8 +60,8 @@ func newToolsDescribeCommand(streams IOStreams, cfgFile *string, v *viper.Viper)
 		Use:     "describe <tool-name>",
 		Aliases: []string{"schema"},
 		Short:   "describe an enabled tool schema",
-		Example: `  mcp-server tools describe echo
-  mcp-server tools describe echo --json`,
+		Example: `  redis-mcp-server tools describe redis_string
+  redis-mcp-server tools describe redis_string --json`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := loadCLIConfig(cmd, *cfgFile, v)
@@ -73,7 +74,7 @@ func newToolsDescribeCommand(streams IOStreams, cfgFile *string, v *viper.Viper)
 			}
 			tool, ok := findTool(tools, args[0])
 			if !ok {
-				return fmt.Errorf("unknown tool %q; run 'mcp-server tools list' to see available tools", args[0])
+				return fmt.Errorf("unknown tool %q; run 'redis-mcp-server tools list' to see available tools", args[0])
 			}
 			description := newToolDescription(tool)
 			if jsonOutput {
@@ -94,9 +95,9 @@ func newToolsCallCommand(streams IOStreams, cfgFile *string, v *viper.Viper) *co
 	command := &cobra.Command{
 		Use:   "call <tool-name>",
 		Short: "call an enabled tool with JSON parameters",
-		Example: `  mcp-server tools call echo --params '{"message":"hello"}'
-  echo '{"message":"hello"}' | mcp-server tools call echo --params-file -
-  mcp-server tools call ping --params '{}'`,
+		Example: `  redis-mcp-server tools call redis_string --params '{"operation":"get","args":{"key":"example"}}'
+  printf '%s\n' '{"operation":"get","args":{"key":"example"}}' | redis-mcp-server tools call redis_string --params-file -
+  redis-mcp-server tools call redis_key --params '{"operation":"type","args":{"key":"example"}}'`,
 		Args: cobra.ExactArgs(1),
 		RunE: func(cmd *cobra.Command, args []string) error {
 			cfg, err := loadCLIConfig(cmd, *cfgFile, v)
@@ -107,13 +108,18 @@ func newToolsCallCommand(streams IOStreams, cfgFile *string, v *viper.Viper) *co
 			if err != nil {
 				return err
 			}
-			tools, err := buildToolCatalog(cfg)
+			toolsets, adapter, err := runtimeToolsets(cfg)
+			if err != nil {
+				return err
+			}
+			defer func() { _ = adapter.Close() }()
+			tools, err := toolcatalog.Build(toolsets, toolset.FilterOptions{EnabledTools: cfg.EnabledTools, DisabledTools: cfg.DisabledTools, EnabledDomains: cfg.EnabledDomains, DisabledDomains: cfg.DisabledDomains})
 			if err != nil {
 				return err
 			}
 			tool, ok := findTool(tools, args[0])
 			if !ok {
-				return fmt.Errorf("unknown tool %q; run 'mcp-server tools list' to see available tools", args[0])
+				return fmt.Errorf("unknown tool %q; run 'redis-mcp-server tools list' to see available tools", args[0])
 			}
 			result, err := tool.Handler(cmd.Context(), params)
 			if err != nil {

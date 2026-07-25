@@ -1,19 +1,20 @@
 package mcp_test
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
-	"github.com/futuretea/mcp-server-template/pkg/core/config"
-	mcpserver "github.com/futuretea/mcp-server-template/pkg/server/mcp"
-	"github.com/futuretea/mcp-server-template/pkg/toolset"
-	"github.com/futuretea/mcp-server-template/pkg/toolset/example"
+	"github.com/futuretea/redis-mcp-server/pkg/core/config"
+	mcpserver "github.com/futuretea/redis-mcp-server/pkg/server/mcp"
+	"github.com/futuretea/redis-mcp-server/pkg/toolset"
+	redistoolset "github.com/futuretea/redis-mcp-server/pkg/toolset/redis"
 )
 
-func TestNewServerRegistersExampleTools(t *testing.T) {
+func TestNewServerRegistersRedisTools(t *testing.T) {
 	server, err := mcpserver.NewServer(mcpserver.Configuration{
 		StaticConfig: &config.StaticConfig{LogLevel: "info"},
-		Toolsets:     []toolset.Toolset{&example.Toolset{}},
+		Toolsets:     []toolset.Toolset{redistoolset.NewToolset(nil, false)},
 	})
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
@@ -24,15 +25,15 @@ func TestNewServerRegistersExampleTools(t *testing.T) {
 		t.Fatal("expected healthy server")
 	}
 	tools := server.GetEnabledTools()
-	if len(tools) != 2 {
-		t.Fatalf("expected 2 tools, got %v", tools)
+	if len(tools) != 8 {
+		t.Fatalf("expected 8 tools, got %v", tools)
 	}
 	names := map[string]bool{}
 	for _, name := range tools {
 		names[name] = true
 	}
-	if !names["echo"] || !names["ping"] {
-		t.Fatalf("expected echo and ping, got %v", tools)
+	if !names["redis_key"] || !names["redis_string"] {
+		t.Fatalf("expected Redis tools, got %v", tools)
 	}
 }
 
@@ -49,7 +50,7 @@ func TestNewServerRejectsEmptyToolFilter(t *testing.T) {
 			LogLevel:     "info",
 			EnabledTools: []string{"missing"},
 		},
-		Toolsets: []toolset.Toolset{&example.Toolset{}},
+		Toolsets: []toolset.Toolset{redistoolset.NewToolset(nil, false)},
 	})
 	if err == nil || !strings.Contains(err.Error(), "no tools registered") {
 		t.Fatalf("expected no tools registered error, got %v", err)
@@ -60,11 +61,11 @@ func TestNewServerRejectsDuplicateToolNames(t *testing.T) {
 	_, err := mcpserver.NewServer(mcpserver.Configuration{
 		StaticConfig: &config.StaticConfig{LogLevel: "info"},
 		Toolsets: []toolset.Toolset{
-			&example.Toolset{},
-			&example.Toolset{},
+			redistoolset.NewToolset(nil, false),
+			redistoolset.NewToolset(nil, false),
 		},
 	})
-	if err == nil || !strings.Contains(err.Error(), `duplicate tool name "echo"`) {
+	if err == nil || !strings.Contains(err.Error(), `duplicate tool name "redis_key"`) {
 		t.Fatalf("expected duplicate tool name error, got %v", err)
 	}
 }
@@ -81,6 +82,30 @@ func TestNewTextResult(t *testing.T) {
 	}
 }
 
+func TestServerClosesOwnedResourceOnce(t *testing.T) {
+	closer := &recordingCloser{}
+	server, err := mcpserver.NewServer(mcpserver.Configuration{
+		StaticConfig: &config.StaticConfig{LogLevel: "info"},
+		Toolsets:     []toolset.Toolset{redistoolset.NewToolset(nil, false)},
+		Closer:       closer,
+	})
+	if err != nil {
+		t.Fatalf("NewServer: %v", err)
+	}
+	server.Close()
+	server.Close()
+	if closer.calls != 1 {
+		t.Fatalf("Close calls = %d, want 1", closer.calls)
+	}
+}
+
 type errString string
 
 func (e errString) Error() string { return string(e) }
+
+type recordingCloser struct{ calls int }
+
+func (c *recordingCloser) Close() error {
+	c.calls++
+	return errors.New("fixture close error")
+}

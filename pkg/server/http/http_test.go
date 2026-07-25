@@ -9,17 +9,17 @@ import (
 	"testing"
 	"time"
 
-	"github.com/futuretea/mcp-server-template/pkg/core/config"
-	internalhttp "github.com/futuretea/mcp-server-template/pkg/server/http"
-	mcpserver "github.com/futuretea/mcp-server-template/pkg/server/mcp"
-	"github.com/futuretea/mcp-server-template/pkg/toolset"
-	"github.com/futuretea/mcp-server-template/pkg/toolset/example"
+	"github.com/futuretea/redis-mcp-server/pkg/core/config"
+	internalhttp "github.com/futuretea/redis-mcp-server/pkg/server/http"
+	mcpserver "github.com/futuretea/redis-mcp-server/pkg/server/mcp"
+	"github.com/futuretea/redis-mcp-server/pkg/toolset"
+	redistoolset "github.com/futuretea/redis-mcp-server/pkg/toolset/redis"
 )
 
 func TestHealthz(t *testing.T) {
 	mcpServer, err := mcpserver.NewServer(mcpserver.Configuration{
 		StaticConfig: &config.StaticConfig{LogLevel: "info"},
-		Toolsets:     []toolset.Toolset{&example.Toolset{}},
+		Toolsets:     []toolset.Toolset{redistoolset.NewToolset(nil, false)},
 	})
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)
@@ -68,7 +68,7 @@ func TestHealthz(t *testing.T) {
 func TestServeListenerShutdown(t *testing.T) {
 	mcpServer, err := mcpserver.NewServer(mcpserver.Configuration{
 		StaticConfig: &config.StaticConfig{LogLevel: "info"},
-		Toolsets:     []toolset.Toolset{&example.Toolset{}},
+		Toolsets:     []toolset.Toolset{redistoolset.NewToolset(nil, false)},
 	})
 	if err != nil {
 		t.Fatalf("NewServer: %v", err)

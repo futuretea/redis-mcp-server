@@ -12,8 +12,8 @@ import (
 	mcpgo "github.com/mark3labs/mcp-go/server"
 	"github.com/rs/zerolog/log"
 
-	"github.com/futuretea/mcp-server-template/pkg/core/config"
-	mcpserver "github.com/futuretea/mcp-server-template/pkg/server/mcp"
+	"github.com/futuretea/redis-mcp-server/pkg/core/config"
+	mcpserver "github.com/futuretea/redis-mcp-server/pkg/server/mcp"
 )
 
 const (

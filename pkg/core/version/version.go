@@ -2,7 +2,7 @@ package version
 
 import "fmt"
 
-const BinaryName = "mcp-server"
+const BinaryName = "redis-mcp-server"
 
 var (
 	Version = "dev"

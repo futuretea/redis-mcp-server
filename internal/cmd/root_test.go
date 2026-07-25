@@ -7,7 +7,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/futuretea/mcp-server-template/internal/cmd"
+	"github.com/futuretea/redis-mcp-server/internal/cmd"
 )
 
 func TestRootHelpListsSubcommands(t *testing.T) {
@@ -42,24 +42,25 @@ func TestRootWithoutArgsShowsHelp(t *testing.T) {
 }
 
 func TestToolsListAndCall(t *testing.T) {
+	configureRedis(t)
 	var out bytes.Buffer
 	root := cmd.NewRootCommand(cmd.IOStreams{Out: &out, ErrOut: &out})
 	root.SetArgs([]string{"tools", "list"})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("tools list: %v", err)
 	}
-	if !strings.Contains(out.String(), "echo") || !strings.Contains(out.String(), "ping") {
-		t.Fatalf("tools list missing echo/ping:\n%s", out.String())
+	if !strings.Contains(out.String(), "redis_string") || strings.Contains(out.String(), "example") {
+		t.Fatalf("unexpected Redis tool list:\n%s", out.String())
 	}
 
 	out.Reset()
 	root = cmd.NewRootCommand(cmd.IOStreams{Out: &out, ErrOut: &out})
-	root.SetArgs([]string{"tools", "call", "echo", "--params", `{"message":"hi"}`})
+	root.SetArgs([]string{"tools", "call", "redis_string", "--params", `{"operation":"get","args":{"key":"sample"}}`})
 	if err := root.Execute(); err != nil {
 		t.Fatalf("tools call: %v", err)
 	}
-	if strings.TrimSpace(out.String()) != "hi" {
-		t.Fatalf("echo result = %q", out.String())
+	if !strings.Contains(out.String(), `"category":"unavailable"`) {
+		t.Fatalf("Redis call result = %q", out.String())
 	}
 }
 
@@ -70,12 +71,13 @@ func TestVersionCommand(t *testing.T) {
 	if err := root.Execute(); err != nil {
 		t.Fatalf("version: %v", err)
 	}
-	if !strings.Contains(out.String(), "mcp-server") {
+	if !strings.Contains(out.String(), "redis-mcp-server") {
 		t.Fatalf("unexpected version output: %q", out.String())
 	}
 }
 
 func TestToolsUnknownTool(t *testing.T) {
+	configureRedis(t)
 	var out bytes.Buffer
 	root := cmd.NewRootCommand(cmd.IOStreams{Out: &out, ErrOut: &out})
 	root.SetArgs([]string{"tools", "describe", "missing-tool"})
@@ -93,9 +95,10 @@ func TestToolsUnknownTool(t *testing.T) {
 }
 
 func TestToolsRejectsNullParams(t *testing.T) {
+	configureRedis(t)
 	var out bytes.Buffer
 	root := cmd.NewRootCommand(cmd.IOStreams{Out: &out, ErrOut: &out})
-	root.SetArgs([]string{"tools", "call", "ping", "--params", "null"})
+	root.SetArgs([]string{"tools", "call", "redis_key", "--params", "null"})
 	err := root.Execute()
 	if err == nil || !strings.Contains(err.Error(), "expected an object") {
 		t.Fatalf("expected JSON object error, got %v", err)
@@ -112,12 +115,13 @@ func TestCommandsReturnOutputErrors(t *testing.T) {
 		{name: "completion install", args: []string{"completion", "install"}},
 		{name: "version", args: []string{"version"}},
 		{name: "tools list", args: []string{"tools", "list"}},
-		{name: "tools describe", args: []string{"tools", "describe", "echo"}},
-		{name: "tools call", args: []string{"tools", "call", "echo", "--params", `{"message":"hi"}`}},
+		{name: "tools describe", args: []string{"tools", "describe", "redis_string"}},
+		{name: "tools call", args: []string{"tools", "call", "redis_string", "--params", `{"operation":"get","args":{"key":"sample"}}`}},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
+			configureRedis(t)
 			root := cmd.NewRootCommand(cmd.IOStreams{
 				In:     strings.NewReader(""),
 				Out:    errorWriter{err: writeErr},
@@ -129,6 +133,12 @@ func TestCommandsReturnOutputErrors(t *testing.T) {
 			}
 		})
 	}
+}
+
+func configureRedis(t *testing.T) {
+	t.Helper()
+	t.Setenv("MCP_REDIS_TOPOLOGY", "standalone")
+	t.Setenv("MCP_REDIS_ADDRESSES", "127.0.0.1:6379")
 }
 
 type errorWriter struct {

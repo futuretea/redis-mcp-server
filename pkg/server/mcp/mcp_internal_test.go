@@ -7,7 +7,7 @@ import (
 
 	mcpprotocol "github.com/mark3labs/mcp-go/mcp"
 
-	"github.com/futuretea/mcp-server-template/pkg/toolset"
+	"github.com/futuretea/redis-mcp-server/pkg/toolset"
 )
 
 func TestNewToolHandlerReturnsErrorResult(t *testing.T) {

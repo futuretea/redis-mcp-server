@@ -7,11 +7,12 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 
-	"github.com/futuretea/mcp-server-template/internal/toolcatalog"
-	"github.com/futuretea/mcp-server-template/pkg/core/config"
-	"github.com/futuretea/mcp-server-template/pkg/core/version"
-	"github.com/futuretea/mcp-server-template/pkg/toolset"
-	"github.com/futuretea/mcp-server-template/pkg/toolset/example"
+	"github.com/futuretea/redis-mcp-server/internal/redisadapter"
+	"github.com/futuretea/redis-mcp-server/internal/toolcatalog"
+	"github.com/futuretea/redis-mcp-server/pkg/core/config"
+	"github.com/futuretea/redis-mcp-server/pkg/core/version"
+	"github.com/futuretea/redis-mcp-server/pkg/toolset"
+	redistoolset "github.com/futuretea/redis-mcp-server/pkg/toolset/redis"
 )
 
 // IOStreams groups the streams used by the CLI.
@@ -28,7 +29,7 @@ func NewRootCommand(streams IOStreams) *cobra.Command {
 
 	command := &cobra.Command{
 		Use:           version.BinaryName,
-		Short:         "MCP server template CLI and Model Context Protocol server",
+		Short:         "Redis MCP Server CLI and Model Context Protocol server",
 		SilenceUsage:  true,
 		SilenceErrors: true,
 	}
@@ -81,17 +82,25 @@ func loadCLIConfig(cmd *cobra.Command, cfgFile string, v *viper.Viper) (*config.
 	return cfg, nil
 }
 
-func defaultToolsets() []toolset.Toolset {
-	return []toolset.Toolset{&example.Toolset{}}
+func defaultToolsets(cfg *config.StaticConfig) []toolset.Toolset {
+	return []toolset.Toolset{redistoolset.NewToolset(nil, cfg.Redis.WriteEnabled)}
 }
 
 func buildToolCatalog(cfg *config.StaticConfig) ([]toolset.ServerTool, error) {
-	return toolcatalog.Build(defaultToolsets(), toolset.FilterOptions{
+	return toolcatalog.Build(defaultToolsets(cfg), toolset.FilterOptions{
 		EnabledTools:    cfg.EnabledTools,
 		DisabledTools:   cfg.DisabledTools,
 		EnabledDomains:  cfg.EnabledDomains,
 		DisabledDomains: cfg.DisabledDomains,
 	})
+}
+
+func runtimeToolsets(cfg *config.StaticConfig) ([]toolset.Toolset, *redisadapter.Adapter, error) {
+	adapter, err := redisadapter.New(cfg.Redis)
+	if err != nil {
+		return nil, nil, err
+	}
+	return []toolset.Toolset{redistoolset.NewToolset(adapter, cfg.Redis.WriteEnabled)}, adapter, nil
 }
 
 func newVersionCommand(streams IOStreams) *cobra.Command {

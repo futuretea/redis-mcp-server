@@ -1,16 +1,20 @@
 package config_test
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
 	"github.com/spf13/viper"
 
-	"github.com/futuretea/mcp-server-template/pkg/core/config"
+	"github.com/futuretea/redis-mcp-server/pkg/core/config"
 )
 
 func TestLoadConfigDefaults(t *testing.T) {
-	cfg, err := config.LoadConfig("", viper.New())
+	v := viper.New()
+	v.Set("redis.topology", "standalone")
+	v.Set("redis.addresses", []string{"127.0.0.1:6379"})
+	cfg, err := config.LoadConfig("", v)
 	if err != nil {
 		t.Fatalf("LoadConfig: %v", err)
 	}
@@ -22,6 +26,40 @@ func TestLoadConfigDefaults(t *testing.T) {
 	}
 	if cfg.LogLevel != "info" {
 		t.Fatalf("expected log_level info, got %q", cfg.LogLevel)
+	}
+	if cfg.Redis.Topology != "standalone" || len(cfg.Redis.Addresses) != 1 {
+		t.Fatalf("unexpected Redis defaults: %+v", cfg.Redis)
+	}
+}
+
+func TestLoadConfigRequiresExplicitRedisTopology(t *testing.T) {
+	_, err := config.LoadConfig("", viper.New())
+	if err == nil || !strings.Contains(err.Error(), "redis.topology") {
+		t.Fatalf("LoadConfig error = %v, want explicit topology error", err)
+	}
+}
+
+func TestRedisConfigValidatesSentinelAndReadsPasswordOnlyFromEnvironment(t *testing.T) {
+	t.Setenv("MCP_REDIS_PASSWORD", "test-secret")
+	v := viper.New()
+	v.Set("redis.topology", "sentinel")
+	v.Set("redis.addresses", []string{"127.0.0.1:26379"})
+
+	_, err := config.LoadConfig("", v)
+	if err == nil || !strings.Contains(err.Error(), "redis.sentinel_master") {
+		t.Fatalf("LoadConfig sentinel error = %v, want missing master", err)
+	}
+
+	v.Set("redis.sentinel_master", "mymaster")
+	cfg, err := config.LoadConfig("", v)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if got := cfg.Redis.Password(); got != "test-secret" {
+		t.Fatalf("Redis.Password() = %q, want environment value", got)
+	}
+	if strings.Contains(fmt.Sprintf("%+v", cfg), "test-secret") {
+		t.Fatal("Redis password leaked through configuration formatting")
 	}
 }
 

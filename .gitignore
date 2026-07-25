@@ -30,3 +30,5 @@ vendor/
 
 # Local agent / auto-improve artifacts
 .project/
+.auto-runs/
+enhancements/
