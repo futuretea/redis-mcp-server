@@ -1,0 +1,8 @@
+{
+  "name": "@futuretea/redis-mcp-server-windows-amd64",
+  "version": "0.0.0",
+  "description": "Redis MCP Server binary for windows/amd64",
+  "files": ["bin/redis-mcp-server.exe"],
+  "os": ["win32"],
+  "cpu": ["x64"]
+}

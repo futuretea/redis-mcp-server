@@ -1,0 +1,8 @@
+{
+  "name": "@futuretea/redis-mcp-server-darwin-arm64",
+  "version": "0.0.0",
+  "description": "Redis MCP Server binary for darwin/arm64",
+  "files": ["bin/redis-mcp-server"],
+  "os": ["darwin"],
+  "cpu": ["arm64"]
+}

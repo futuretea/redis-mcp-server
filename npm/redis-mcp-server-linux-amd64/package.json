@@ -1,0 +1,8 @@
+{
+  "name": "@futuretea/redis-mcp-server-linux-amd64",
+  "version": "0.0.0",
+  "description": "Redis MCP Server binary for linux/amd64",
+  "files": ["bin/redis-mcp-server"],
+  "os": ["linux"],
+  "cpu": ["x64"]
+}

@@ -1,0 +1,35 @@
+{
+  "name": "@futuretea/redis-mcp-server",
+  "version": "0.0.0",
+  "description": "Redis Model Context Protocol server",
+  "main": "./bin/index.js",
+  "bin": {
+    "redis-mcp-server": "bin/index.js"
+  },
+  "optionalDependencies": {
+    "@futuretea/redis-mcp-server-darwin-amd64": "0.0.0",
+    "@futuretea/redis-mcp-server-darwin-arm64": "0.0.0",
+    "@futuretea/redis-mcp-server-linux-amd64": "0.0.0",
+    "@futuretea/redis-mcp-server-linux-arm64": "0.0.0",
+    "@futuretea/redis-mcp-server-windows-amd64": "0.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/futuretea/redis-mcp-server.git"
+  },
+  "keywords": [
+    "mcp",
+    "redis",
+    "database",
+    "model-context-protocol"
+  ],
+  "author": {
+    "name": "futuretea",
+    "url": "https://github.com/futuretea"
+  },
+  "license": "MIT",
+  "bugs": {
+    "url": "https://github.com/futuretea/redis-mcp-server/issues"
+  },
+  "homepage": "https://github.com/futuretea/redis-mcp-server#readme"
+}

@@ -33,7 +33,7 @@ ENTRYPOINT ["/usr/local/bin/redis-mcp-server", "mcp"]
 
 FROM runtime AS release
 
-COPY redis-mcp-server /usr/local/bin/redis-mcp-server
+COPY --from=builder /usr/local/bin/redis-mcp-server /usr/local/bin/redis-mcp-server
 
 FROM runtime AS dev
 

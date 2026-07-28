@@ -7,7 +7,17 @@ LDFLAGS := -X github.com/futuretea/redis-mcp-server/pkg/core/version.Version=$(V
 	-X github.com/futuretea/redis-mcp-server/pkg/core/version.Commit=$(COMMIT) \
 	-X github.com/futuretea/redis-mcp-server/pkg/core/version.Date=$(DATE)
 
-.PHONY: build test lint format tidy ci clean docker coverage integration
+NPM_PACKAGE ?= redis-mcp-server
+NPM_ROOT ?= npm
+NPM_VERSION ?= $(shell git describe --tags --always 2>/dev/null | sed 's/^v//')
+NPM_PUBLISH_FLAGS ?= --access=public
+NPM_PACK_DIR ?= dist/npm-packages
+NPM ?= npm
+NODE ?= node
+NPM_UNIX_PLATFORMS := darwin-amd64 darwin-arm64 linux-amd64 linux-arm64
+NPM_WINDOWS_PLATFORMS := windows-amd64
+
+.PHONY: build test lint format tidy ci clean docker coverage integration npm-copy-platform npm-verify-binaries npm-prepare-packages npm-create-tarballs npm-publish
 
 build:
 	go build -ldflags "$(LDFLAGS)" -o bin/$(BINARY_NAME) ./cmd/redis-mcp-server
@@ -62,6 +72,67 @@ docker:
 		--build-arg BUILD_DATE=$(DATE) \
 		-t redis-mcp-server:$(DOCKER_TAG) \
 		-t redis-mcp-server:$(VERSION) .
+
+npm-copy-platform:
+	test -n "$(GOOS)"
+	test -n "$(GOARCH)"
+	test -n "$(OUTPUT)"
+	test -f "$(OUTPUT)"
+	mkdir -p "$(NPM_ROOT)/$(NPM_PACKAGE)-$(GOOS)-$(GOARCH)/bin"
+	cp "$(OUTPUT)" "$(NPM_ROOT)/$(NPM_PACKAGE)-$(GOOS)-$(GOARCH)/bin/$(BINARY_NAME)$(if $(filter windows,$(GOOS)),.exe,)"
+
+npm-verify-binaries:
+	@set -eu; \
+		for platform in $(NPM_UNIX_PLATFORMS); do \
+			test -x "$(NPM_ROOT)/$(NPM_PACKAGE)-$$platform/bin/$(BINARY_NAME)"; \
+		done; \
+		for platform in $(NPM_WINDOWS_PLATFORMS); do \
+			test -f "$(NPM_ROOT)/$(NPM_PACKAGE)-$$platform/bin/$(BINARY_NAME).exe"; \
+		done
+
+npm-prepare-packages: npm-verify-binaries
+	test -f README.md
+	test -f LICENSE
+	cp README.md LICENSE "$(NPM_ROOT)/$(NPM_PACKAGE)/"
+	@set -eu; for package_dir in "$(NPM_ROOT)"/$(NPM_PACKAGE)-*; do \
+		jq --arg version "$(NPM_VERSION)" '.version = $$version' "$$package_dir/package.json" > "$$package_dir/package.json.tmp"; \
+		mv "$$package_dir/package.json.tmp" "$$package_dir/package.json"; \
+	done
+	jq --arg version "$(NPM_VERSION)" '.version = $$version | .optionalDependencies |= with_entries(.value = $$version)' "$(NPM_ROOT)/$(NPM_PACKAGE)/package.json" > "$(NPM_ROOT)/$(NPM_PACKAGE)/package.json.tmp"
+	mv "$(NPM_ROOT)/$(NPM_PACKAGE)/package.json.tmp" "$(NPM_ROOT)/$(NPM_PACKAGE)/package.json"
+
+npm-create-tarballs: npm-prepare-packages
+	rm -rf "$(NPM_PACK_DIR)"
+	mkdir -p "$(NPM_PACK_DIR)"
+	@set -eu; for package_dir in "$(NPM_ROOT)"/$(NPM_PACKAGE)-* "$(NPM_ROOT)/$(NPM_PACKAGE)"; do \
+		filename="$$(cd "$$package_dir" && $(NPM) pack --json | jq -er '.[0].filename')"; \
+		mv "$$package_dir/$$filename" "$(NPM_PACK_DIR)/$$(basename "$$package_dir").tgz"; \
+	done
+
+npm-publish: npm-create-tarballs
+	@set -eu; \
+		temp_dir="$$(mktemp -d)"; \
+		trap 'rm -rf "$$temp_dir"' EXIT; \
+		for package_dir in "$(NPM_ROOT)"/$(NPM_PACKAGE)-* "$(NPM_ROOT)/$(NPM_PACKAGE)"; do \
+			package_name="$$(jq -er '.name' "$$package_dir/package.json")"; \
+			package_version="$$(jq -er '.version' "$$package_dir/package.json")"; \
+			package_spec="$$package_name@$$package_version"; \
+			archive="$(NPM_PACK_DIR)/$$(basename "$$package_dir").tgz"; \
+			local_integrity="$$( $(NODE) -e 'const crypto = require("crypto"); const fs = require("fs"); process.stdout.write("sha512-" + crypto.createHash("sha512").update(fs.readFileSync(process.argv[1])).digest("base64"));' "$$archive")"; \
+			if $(NPM) view "$$package_spec" dist.integrity --json > "$$temp_dir/view.json" 2> "$$temp_dir/view.err"; then \
+				remote_integrity="$$(jq -er 'if type == "string" and length > 0 then . else error("missing dist.integrity") end' "$$temp_dir/view.json")"; \
+				if [ "$$local_integrity" != "$$remote_integrity" ]; then \
+					echo "Existing $$package_spec does not match the local release artifact" >&2; \
+					exit 1; \
+				fi; \
+				echo "$$package_spec is already published with matching integrity"; \
+			elif grep -Eq 'E404|404 Not Found' "$$temp_dir/view.err"; then \
+				NPM_PACKAGE_NAME="$$package_name" NPM_PACKAGE_VERSION="$$package_version" $(NPM) publish "$$archive" $(NPM_PUBLISH_FLAGS); \
+			else \
+				cat "$$temp_dir/view.err" >&2; \
+				exit 1; \
+			fi; \
+		done
 
 clean:
 	rm -rf bin coverage.out coverage.txt
