@@ -81,6 +81,45 @@ redis:
 
 Sentinel 必须设置 `sentinel_master`；Cluster 使用 `addresses` 作为 seed；Sentinel 使用它作为 Sentinel endpoint。
 
+## 生产安全指南
+
+本服务会收缩 AI 客户端可使用的 Redis 能力；它不是认证网关，也不是完整的数据访问策略。只读模式会阻止写入，但读取操作仍可能泄露数据或消耗 Redis 容量。
+
+### 默认保持写入关闭
+
+面对不完全可信或通用用途的 AI 客户端，应保持 `redis.write_enabled: false`。开启后会注册修改数据的工具，包括删除 key、裁剪集合；它不是逐请求审批模式。
+
+### 只暴露最小可用工具集
+
+使用 `enabled_tools` 仅暴露客户端所需的工具族。过滤粒度是“工具”，不是“操作”：例如启用 `redis_string` 会暴露该工具声明的全部读取操作。除非确实需要发现 key 或查看 keyspace 元数据，否则不要向不可信客户端暴露 `redis_key` 或 `redis_observe`。
+
+```yaml
+enabled_tools:
+  - redis_string
+  - redis_hash
+disabled_tools:
+  - redis_key
+  - redis_observe
+```
+
+### 限制 Redis 账号和 keyspace
+
+使用专用 Redis ACL 账号连接。只授予所选工具所需的命令和 key pattern，不要使用管理员或应用所有者账号。只读 Redis 账号仍能泄露其有权读取的所有 key，因此应把密钥和其他租户的数据排除在允许的 key pattern 之外。
+
+### 将 HTTP 和 SSE 放在认证边界之后
+
+本地 MCP 客户端优先使用 stdio。使用 HTTP 或 SSE 时，应在服务前配置 TLS、fail-closed 认证、网络隔离，以及请求速率和并发限制。不要把该进程直接暴露给不可信网络。
+
+### 限制枚举并核对实际工具目录
+
+基于 `SCAN` 的操作避免了会阻塞 Redis 的 `KEYS` 命令，且每页集合结果有上限；但持续请求仍可枚举大量 key。应在网关层对请求频率、扫描量、延迟和错误设置配额与监控。部署前检查实际目录：
+
+```bash
+./bin/redis-mcp-server tools list --config production.yaml
+```
+
+确认没有注册 `*_write` 工具，且每个已列出的工具都是有意暴露的。同时验证部署边界会拒绝未认证请求，Redis ACL 会拒绝目标范围之外的 key。
+
 ## 传输与部署
 
 ```bash

@@ -81,6 +81,45 @@ redis:
 
 Use `sentinel_master` for Sentinel. `addresses` lists cluster seeds for Cluster and Sentinel endpoints for Sentinel.
 
+## Production safety guide
+
+This server reduces the Redis capabilities exposed to an AI client; it is not an authentication gateway or a complete data-access policy. Read-only mode prevents mutations, but reads can still disclose data or consume Redis capacity.
+
+### Keep writes disabled by default
+
+Keep `redis.write_enabled: false` for untrusted or general-purpose AI clients. Enabling it registers mutation tools, including key deletion and collection trimming; it is not a per-request approval mode.
+
+### Expose the smallest useful tool set
+
+Use `enabled_tools` to expose only the tool families required by the client. Tool filtering is at the tool level, not the operation level: enabling `redis_string`, for example, exposes all of that tool's declared read operations. Do not expose `redis_key` or `redis_observe` to an untrusted client unless key discovery and keyspace metadata are required.
+
+```yaml
+enabled_tools:
+  - redis_string
+  - redis_hash
+disabled_tools:
+  - redis_key
+  - redis_observe
+```
+
+### Restrict the Redis account and keyspace
+
+Connect with a dedicated Redis ACL account. Grant it only the commands and key patterns needed by the selected tools; do not use an administrator or application-owner account. A read-only Redis account can still disclose every key it can read, so keep secrets and unrelated tenant data outside its permitted key patterns.
+
+### Put HTTP and SSE behind an authenticated boundary
+
+Prefer stdio for local MCP clients. When using HTTP or SSE, place the server behind TLS, fail-closed authentication, network isolation, and request rate/concurrency limits. Do not expose the process directly to an untrusted network.
+
+### Bound enumeration and verify the deployed catalog
+
+`SCAN`-based operations avoid the blocking `KEYS` command and each collection page is bounded, but repeated requests can still enumerate a large keyspace. Apply gateway quotas and monitoring for request rate, scan volume, latency, and errors. Before deployment, inspect the actual catalog:
+
+```bash
+./bin/redis-mcp-server tools list --config production.yaml
+```
+
+Confirm that no `*_write` tool is registered and that every listed tool is intentional. Also verify that the deployment boundary rejects unauthenticated requests and that the Redis ACL denies keys outside the intended scope.
+
 ## Transports and deployment
 
 ```bash
