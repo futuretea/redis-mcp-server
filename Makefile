@@ -47,11 +47,15 @@ coverage:
 integration:
 	@set -eu; \
 	set -a; . testdata/redis/images.lock; set +a; \
-	test_binary="bin/redisadapter-integration.test"; \
-	cleanup() { rm -f "$$test_binary"; REDIS_IMAGE="$$REDIS_IMAGE" docker compose -f testdata/redis/compose.yaml down -v; }; \
+	adapter_test_binary="bin/redisadapter-integration.test"; \
+	e2e_test_binary="bin/redis-mcp-server-e2e.test"; \
+	e2e_server_binary="bin/redis-mcp-server-e2e"; \
+	cleanup() { rm -f "$$adapter_test_binary" "$$e2e_test_binary" "$$e2e_server_binary"; REDIS_IMAGE="$$REDIS_IMAGE" docker compose -f testdata/redis/compose.yaml down -v; }; \
 	trap cleanup EXIT; \
 	mkdir -p bin; \
-	CGO_ENABLED=0 GOOS=linux go test -c -tags=integration -o "$$test_binary" ./internal/redisadapter; \
+	CGO_ENABLED=0 GOOS=linux go test -c -tags=integration -o "$$adapter_test_binary" ./internal/redisadapter; \
+	CGO_ENABLED=0 GOOS=linux go test -c -tags=e2e -o "$$e2e_test_binary" ./internal/e2e; \
+	CGO_ENABLED=0 GOOS=linux go build -o "$$e2e_server_binary" ./cmd/redis-mcp-server; \
 	REDIS_IMAGE="$$REDIS_IMAGE" docker compose -f testdata/redis/compose.yaml up -d standalone sentinel-master sentinel cluster-1 cluster-2 cluster-3; \
 	REDIS_IMAGE="$$REDIS_IMAGE" docker compose -f testdata/redis/compose.yaml run --rm cluster-init; \
 	for attempt in $$(seq 1 30); do \
@@ -59,7 +63,8 @@ integration:
 		if [ "$$attempt" -eq 30 ]; then exit 1; fi; \
 		sleep 1; \
 	done; \
-	REDIS_IMAGE="$$REDIS_IMAGE" docker compose -f testdata/redis/compose.yaml run --rm --no-deps -e REDIS_MCP_INTEGRATION_DOCKER_NETWORK=1 -v "$$PWD/$$test_binary:/redisadapter-integration.test:ro" --entrypoint /redisadapter-integration.test cluster-init -test.v
+	REDIS_IMAGE="$$REDIS_IMAGE" docker compose -f testdata/redis/compose.yaml run --rm --no-deps -e REDIS_MCP_INTEGRATION_DOCKER_NETWORK=1 -v "$$PWD/$$adapter_test_binary:/redisadapter-integration.test:ro" --entrypoint /redisadapter-integration.test cluster-init -test.v; \
+	REDIS_IMAGE="$$REDIS_IMAGE" docker compose -f testdata/redis/compose.yaml run --rm --no-deps -e REDIS_MCP_E2E_DOCKER_NETWORK=1 -e REDIS_MCP_E2E_SERVER_BINARY=/redis-mcp-server-e2e -v "$$PWD/$$e2e_test_binary:/redis-mcp-server-e2e.test:ro" -v "$$PWD/$$e2e_server_binary:/redis-mcp-server-e2e:ro" --entrypoint /redis-mcp-server-e2e.test cluster-init -test.v
 
 ci: lint test build integration
 
