@@ -122,7 +122,7 @@ func (s toolSpec) schema() json.RawMessage {
 			},
 		})
 	}
-	schema, err := json.Marshal(map[string]any{"oneOf": variants})
+	schema, err := json.Marshal(map[string]any{"type": "object", "oneOf": variants})
 	if err != nil {
 		panic(fmt.Sprintf("marshal Redis tool schema: %v", err))
 	}

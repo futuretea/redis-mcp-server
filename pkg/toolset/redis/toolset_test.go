@@ -55,6 +55,20 @@ func TestToolset_WriteCatalogAddsOnlyDeclaredWriteTools(t *testing.T) {
 	}
 }
 
+func TestToolsetSchemasDeclareObjectRoot(t *testing.T) {
+	for _, writeEnabled := range []bool{false, true} {
+		for _, tool := range redistoolset.NewToolset(nil, writeEnabled).GetTools() {
+			var schema map[string]any
+			if err := json.Unmarshal(tool.Tool.RawInputSchema, &schema); err != nil {
+				t.Fatalf("unmarshal %s schema: %v", tool.Tool.Name, err)
+			}
+			if schema["type"] != "object" {
+				t.Fatalf("%s input schema type = %#v, want object", tool.Tool.Name, schema["type"])
+			}
+		}
+	}
+}
+
 func TestToolsetRejectsUnknownTopLevelAndArguments(t *testing.T) {
 	tool := findTool(t, redistoolset.NewToolset(nil, false).GetTools(), "redis_string")
 	result, err := tool.Handler(context.Background(), map[string]any{
