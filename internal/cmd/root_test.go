@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"io"
+	"net"
 	"strings"
 	"testing"
 
@@ -54,13 +55,12 @@ func TestToolsListAndCall(t *testing.T) {
 	}
 
 	out.Reset()
+	t.Setenv("MCP_REDIS_ADDRESSES", closedRedisAddress(t))
 	root = cmd.NewRootCommand(cmd.IOStreams{Out: &out, ErrOut: &out})
 	root.SetArgs([]string{"tools", "call", "redis_string", "--params", `{"operation":"get","args":{"key":"sample"}}`})
-	if err := root.Execute(); err != nil {
-		t.Fatalf("tools call: %v", err)
-	}
-	if !strings.Contains(out.String(), `"category":"unavailable"`) {
-		t.Fatalf("Redis call result = %q", out.String())
+	err := root.Execute()
+	if err == nil || !strings.Contains(err.Error(), "[redis_connection_failed]") {
+		t.Fatalf("tools call error = %v, want redis connection failure", err)
 	}
 }
 
@@ -116,7 +116,6 @@ func TestCommandsReturnOutputErrors(t *testing.T) {
 		{name: "version", args: []string{"version"}},
 		{name: "tools list", args: []string{"tools", "list"}},
 		{name: "tools describe", args: []string{"tools", "describe", "redis_string"}},
-		{name: "tools call", args: []string{"tools", "call", "redis_string", "--params", `{"operation":"get","args":{"key":"sample"}}`}},
 	}
 
 	for _, tt := range tests {
@@ -139,6 +138,19 @@ func configureRedis(t *testing.T) {
 	t.Helper()
 	t.Setenv("MCP_REDIS_TOPOLOGY", "standalone")
 	t.Setenv("MCP_REDIS_ADDRESSES", "127.0.0.1:6379")
+}
+
+func closedRedisAddress(t *testing.T) string {
+	t.Helper()
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	address := listener.Addr().String()
+	if err := listener.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+	return address
 }
 
 type errorWriter struct {

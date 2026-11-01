@@ -108,7 +108,14 @@ func newToolsCallCommand(streams IOStreams, cfgFile *string, v *viper.Viper) *co
 			if err != nil {
 				return err
 			}
-			toolsets, adapter, err := runtimeToolsets(cfg)
+			catalog, err := buildToolCatalog(cfg)
+			if err != nil {
+				return err
+			}
+			if _, ok := findTool(catalog, args[0]); !ok {
+				return fmt.Errorf("unknown tool %q; run 'redis-mcp-server tools list' to see available tools", args[0])
+			}
+			toolsets, adapter, err := runtimeToolsets(cmd.Context(), cfg)
 			if err != nil {
 				return err
 			}
