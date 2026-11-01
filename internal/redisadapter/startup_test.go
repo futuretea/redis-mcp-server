@@ -319,7 +319,7 @@ func (p fakeACLProbe) GetUser(_ context.Context, username string) (aclUserView, 
 	if p.userErr != nil {
 		return aclUserView{}, p.userErr
 	}
-	if username != p.username && !(p.username == "" && username == "mcp-reader") {
+	if username != p.username && (p.username != "" || username != "mcp-reader") {
 		return aclUserView{}, errors.New("probe queried the wrong user")
 	}
 	if p.rawUser != nil {
