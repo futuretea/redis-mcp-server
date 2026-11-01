@@ -22,6 +22,10 @@ type StaticConfig struct {
 	EnabledDomains  []string    `mapstructure:"enabled_domains"`
 	DisabledDomains []string    `mapstructure:"disabled_domains"`
 	Redis           RedisConfig `mapstructure:"redis"`
+
+	// AllowUnsafeDatabaseRole skips only the startup Redis ACL privilege
+	// rejection. Connection and ACL probe failures still abort startup.
+	AllowUnsafeDatabaseRole bool `mapstructure:"allow_unsafe_database_role"`
 }
 
 // RedisConfig configures a single explicit Redis topology. Password is never
@@ -96,20 +100,21 @@ func LoadConfig(configPath string, v *viper.Viper) (*StaticConfig, error) {
 	}
 
 	defaults := map[string]any{
-		"port":                  0,
-		"listen":                "127.0.0.1",
-		"sse_base_url":          "",
-		"log_level":             "info",
-		"enabled_tools":         []string{},
-		"disabled_tools":        []string{},
-		"enabled_domains":       []string{},
-		"disabled_domains":      []string{},
-		"redis.topology":        "",
-		"redis.addresses":       []string{},
-		"redis.username":        "",
-		"redis.tls":             false,
-		"redis.sentinel_master": "",
-		"redis.write_enabled":   false,
+		"port":                       0,
+		"listen":                     "127.0.0.1",
+		"sse_base_url":               "",
+		"log_level":                  "info",
+		"enabled_tools":              []string{},
+		"disabled_tools":             []string{},
+		"enabled_domains":            []string{},
+		"disabled_domains":           []string{},
+		"allow_unsafe_database_role": false,
+		"redis.topology":             "",
+		"redis.addresses":            []string{},
+		"redis.username":             "",
+		"redis.tls":                  false,
+		"redis.sentinel_master":      "",
+		"redis.write_enabled":        false,
 	}
 	for key, value := range defaults {
 		v.SetDefault(key, value)

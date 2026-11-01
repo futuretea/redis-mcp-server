@@ -14,6 +14,8 @@ make build
   --params '{"operation":"get","args":{"key":"sample"}}'
 ```
 
+`tools list` 和 `tools describe` 不会连接 Redis。`tools call` 和 `mcp` 会先连接，再拒绝具备管理命令能力的账号，除非设置了 `allow_unsafe_database_role`。见“服务账号”。
+
 读取目录包含 `redis_key`、`redis_string`、`redis_hash`、`redis_list`、`redis_set`、`redis_sorted_set`、`redis_stream`、`redis_observe`。写模式额外注册七个对应的 `*_write` 工具；项目不提供 raw command、`Do` 入口或 `redis_observe_write`。
 
 所有集合结果会在访问 Redis 前被限制为 1–1000 项。`SCAN`、`HSCAN`、`SSCAN`、`ZSCAN` 返回固定长度的 opaque base64url 续页引用，不会暴露 Redis 原生 cursor 或缓冲值。一次成功续页后，该引用的空闲有效期为 5 分钟；每个 adapter 最多保存 1,000 个 session、16 MiB 编码状态，并按 LRU 整体淘汰 session。已过期或被淘汰的引用返回 `cursor_expired`；无法接纳的新续页返回 `cursor_unavailable`。Stream 不提供 entry 读取；目录仅保留长度、受限的 pending 查询与 `XCLAIM JUSTID`。
@@ -70,6 +72,7 @@ docker run --rm -i \
 Redis topology 必须显式指定。密码只从 `MCP_REDIS_PASSWORD` 读取，不能写入 YAML。
 
 ```yaml
+allow_unsafe_database_role: false
 redis:
   topology: standalone # standalone | cluster | sentinel
   addresses: ["127.0.0.1:6379"]
@@ -79,7 +82,37 @@ redis:
   write_enabled: false
 ```
 
+`allow_unsafe_database_role` 默认为 false。环境变量是 `MCP_ALLOW_UNSAFE_DATABASE_ROLE`。密码仍然只从 `MCP_REDIS_PASSWORD` 读取。
+
 Sentinel 必须设置 `sentinel_master`；Cluster 使用 `addresses` 作为 seed；Sentinel 使用它作为 Sentinel endpoint。
+
+### 服务账号
+
+进程连上 Redis 之后、任何工具执行命令之前，启动检查会读取当前用户的 ACL。它发送 `PING`、`ACL WHOAMI`、`ACL GETUSER` 和 `ACL CAT`。根规则或任一 selector 能够执行下列命令时，进程以 `[redis_unsafe_service_role] database service role is not permitted` 退出：
+
+- `@admin` 类别中的命令，包括 `CONFIG`、`DEBUG`、`SHUTDOWN`、`ACL SETUSER`、`BGSAVE`、`REPLICAOF`、`MODULE`、`MONITOR`、`CLIENT KILL`，以及 `CLUSTER FAILOVER`、`CLUSTER RESET` 等集群管理子命令
+- `FLUSHALL`、`FLUSHDB`、`SWAPDB` 或 `MIGRATE`
+- 整个 `ACL`、`CLIENT` 或 `CLUSTER` 命令
+
+下列探测命令本身不会导致拒绝：`ACL WHOAMI`、`ACL GETUSER`、`ACL CAT`。`CLUSTER SLOTS`、`CLUSTER NODES`、`CLUSTER SHARDS` 等集群发现命令也不会导致拒绝。账号必须能够执行这些探测命令，否则即使打开 opt-out，启动也会以 `[redis_privilege_probe_failed]` 失败。连接被拒绝时以 `[redis_connection_failed]` 失败，opt-out 不会跳过它。
+
+只拥有所需读取命令和探测命令的账号可以用默认配置启动，不需要 opt-out。业务账号也可以：先授予读写类别，再撤销 `@admin`、`@dangerous`、`FLUSHALL`、`FLUSHDB`、`SWAPDB` 和 `MIGRATE`。`+@write` 包含 `FLUSHALL`。`+@connection` 包含 `CLIENT KILL`。先授予宽泛类别，再撤销危险命令，然后把探测命令加回去。
+
+```redis
+ACL SETUSER mcp-reader on >strong-password ~app:* resetchannels &
+  -@all
+  +@read
+  -@admin
+  -@dangerous
+  +ping
+  +acl|whoami
+  +acl|getuser
+  +acl|cat
+```
+
+`allow_unsafe_database_role` 默认为 `false`。只有无法配置最小权限账号时，才在配置文件中设为 `true`，或导出 `MCP_ALLOW_UNSAFE_DATABASE_ROLE=true`。服务会记录一条警告并跳过这次权限拒绝。连接失败、ACL 探测失败，以及其他启动检查仍会阻止启动。该 Redis 用户仍然可以在工具目录之外执行 `FLUSHALL`、`CONFIG`、`DEBUG` 或 `SHUTDOWN`：本服务不提供 raw command，但账号本身具备这些能力。只在你控制的 Redis 实例上启用该选项。
+
+警告以 warn 级别记录。HTTP 模式在默认 `info` 日志级别下可以看到它。Stdio 模式会关闭日志，以免污染 MCP 输出。不要使用 Redis 的 `default` 用户。标准服务会授予该用户 `+@all`。
 
 ## 生产安全指南
 
@@ -104,7 +137,7 @@ disabled_tools:
 
 ### 限制 Redis 账号和 keyspace
 
-使用专用 Redis ACL 账号连接。只授予所选工具所需的命令和 key pattern，不要使用管理员或应用所有者账号。只读 Redis 账号仍能泄露其有权读取的所有 key，因此应把密钥和其他租户的数据排除在允许的 key pattern 之外。
+使用专用 Redis ACL 账号连接。只授予所选工具所需的命令和 key pattern，不要使用管理员或应用所有者账号。除非设置 `allow_unsafe_database_role`，启动时会拒绝 `@admin`、`FLUSHALL`、`FLUSHDB`、`CONFIG`、`DEBUG`、`SHUTDOWN` 以及“服务账号”一节列出的其他管理命令。只读 Redis 账号仍能泄露其有权读取的所有 key，因此应把密钥和其他租户的数据排除在允许的 key pattern 之外。
 
 ### 将 HTTP 和 SSE 放在认证边界之后
 

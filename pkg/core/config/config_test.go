@@ -30,6 +30,23 @@ func TestLoadConfigDefaults(t *testing.T) {
 	if cfg.Redis.Topology != "standalone" || len(cfg.Redis.Addresses) != 1 {
 		t.Fatalf("unexpected Redis defaults: %+v", cfg.Redis)
 	}
+	if cfg.AllowUnsafeDatabaseRole {
+		t.Fatal("allow_unsafe_database_role default = true, want false")
+	}
+}
+
+func TestLoadConfigAllowUnsafeDatabaseRoleFromEnvironment(t *testing.T) {
+	t.Setenv("MCP_ALLOW_UNSAFE_DATABASE_ROLE", "true")
+	v := viper.New()
+	v.Set("redis.topology", "standalone")
+	v.Set("redis.addresses", []string{"127.0.0.1:6379"})
+	cfg, err := config.LoadConfig("", v)
+	if err != nil {
+		t.Fatalf("LoadConfig: %v", err)
+	}
+	if !cfg.AllowUnsafeDatabaseRole {
+		t.Fatal("AllowUnsafeDatabaseRole = false, want true from MCP_ALLOW_UNSAFE_DATABASE_ROLE")
+	}
 }
 
 func TestLoadConfigRequiresExplicitRedisTopology(t *testing.T) {
