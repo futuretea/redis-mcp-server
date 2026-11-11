@@ -61,20 +61,28 @@ func exerciseStartupRedis(t *testing.T, binary string) {
 
 	probe := []any{"+ping", "+acl|whoami", "+acl|getuser", "+acl|cat"}
 	if major >= 7 {
-		setRedisUser(t, ctx, admin, append([]any{"mcp-reader", "reset", "on", ">reader-secret", "~app:*", "resetchannels", "&", "-@all", "+@read", "-@admin", "-@dangerous"}, probe...)...)
-		setRedisUser(t, ctx, admin, append([]any{"mcp-app", "reset", "on", ">app-secret", "~app:*", "resetchannels", "&", "-@all", "+@read", "+@write", "+@connection", "+@keyspace", "+@string", "+@hash", "+@list", "+@set", "+@sortedset", "+@stream", "+@fast", "-@admin", "-@dangerous", "-@scripting", "-flushall", "-flushdb", "-swapdb", "-migrate", "-memory|purge", "+cluster|slots", "+cluster|nodes", "+cluster|shards"}, probe...)...)
+		setRedisUser(t, ctx, admin, append([]any{"mcp-reader", "reset", "on", ">reader-secret", "~app:*", "resetchannels", "&", "-@all", "+@read", "-@admin", "-@dangerous", "-randomkey", "-scan"}, probe...)...)
+		setRedisUser(t, ctx, admin, append([]any{"mcp-app", "reset", "on", ">app-secret", "~app:*", "resetchannels", "&", "-@all", "+@read", "+@write", "+@connection", "+@keyspace", "+@string", "+@hash", "+@list", "+@set", "+@sortedset", "+@stream", "+@fast", "-@admin", "-@dangerous", "-@scripting", "-flushall", "-flushdb", "-swapdb", "-migrate", "-memory|purge", "-randomkey", "-scan", "+cluster|slots", "+cluster|nodes", "+cluster|shards"}, probe...)...)
 		setRedisUser(t, ctx, admin, append([]any{"mcp-legacy", "reset", "on", ">legacy-secret", "~app:*", "resetchannels", "&", "-@all", "+@read", "+@write", "-@admin", "-@dangerous", "-flushall", "-flushdb", "-swapdb", "-migrate"}, probe...)...)
 		setRedisUser(t, ctx, admin, append([]any{"mcp-fun", "reset", "on", ">fun-secret", "~app:*", "resetchannels", "&", "-@all", "+@read", "(~* +function|flush)"}, probe...)...)
 		setRedisUser(t, ctx, admin, append([]any{"mcp-script", "reset", "on", ">script-secret", "~app:*", "resetchannels", "&", "-@all", "+@read", "(~* +script|debug)"}, probe...)...)
 		setRedisUser(t, ctx, admin, append([]any{"mcp-sel", "reset", "on", ">sel-secret", "~app:*", "resetchannels", "&", "-@all", "+@read", "(~other:* +flushall)"}, probe...)...)
+		if major >= 8 {
+			setRedisUser(t, ctx, admin, append([]any{"mcp-trim", "reset", "on", ">trim-secret", "~*", "-@all", "+trimslots"}, probe...)...)
+			setRedisUser(t, ctx, admin, append([]any{"mcp-trimcat", "reset", "on", ">trimcat-secret", "~*", "-@all", "+@read", "+@write", "+@keyspace", "+@slow", "-@admin", "-@scripting", "-flushall", "-flushdb", "-swapdb", "-migrate", "-memory|purge"}, probe...)...)
+			setRedisUser(t, ctx, admin, append([]any{"mcp-trimsel", "reset", "on", ">trimsel-secret", "~*", "-@all", "+@read", "-randomkey", "-scan", "(~* +trimslots)"}, probe...)...)
+		}
 	} else {
-		setRedisUser(t, ctx, admin, append([]any{"mcp-reader", "reset", "on", ">reader-secret", "~app:*", "resetchannels", "&", "-@all", "+@read", "-@admin", "-@dangerous", "-memory"}, probe...)...)
-		setRedisUser(t, ctx, admin, append([]any{"mcp-app", "reset", "on", ">app-secret", "~app:*", "resetchannels", "&", "-@all", "+@read", "+@write", "+@connection", "+@keyspace", "+@string", "+@hash", "+@list", "+@set", "+@sortedset", "+@stream", "+@fast", "-@admin", "-@dangerous", "-@scripting", "-memory", "-flushall", "-flushdb", "-swapdb", "-migrate"}, probe...)...)
+		setRedisUser(t, ctx, admin, append([]any{"mcp-reader", "reset", "on", ">reader-secret", "~app:*", "resetchannels", "&", "-@all", "+@read", "-@admin", "-@dangerous", "-memory", "-randomkey", "-scan"}, probe...)...)
+		setRedisUser(t, ctx, admin, append([]any{"mcp-app", "reset", "on", ">app-secret", "~app:*", "resetchannels", "&", "-@all", "+@read", "+@write", "+@connection", "+@keyspace", "+@string", "+@hash", "+@list", "+@set", "+@sortedset", "+@stream", "+@fast", "-@admin", "-@dangerous", "-@scripting", "-memory", "-flushall", "-flushdb", "-swapdb", "-migrate", "-randomkey", "-scan"}, probe...)...)
 		setRedisUser(t, ctx, admin, append([]any{"mcp-legacy", "reset", "on", ">legacy-secret", "~app:*", "resetchannels", "&", "-@all", "+@read", "-@admin", "-@dangerous"}, probe...)...)
 	}
 	setRedisUser(t, ctx, admin, "mcp-noprobe", "reset", "on", ">noprobe-secret", "~app:*", "-@all", "+@read", "+ping")
 	if err := admin.Set(ctx, "app:sample", "hello-review", 0).Err(); err != nil {
 		t.Fatalf("SET app:sample: %v", err)
+	}
+	if err := admin.Set(ctx, "secret:hidden", "topsecret", 0).Err(); err != nil {
+		t.Fatalf("SET secret:hidden: %v", err)
 	}
 
 	t.Run("default user", func(t *testing.T) {
@@ -116,6 +124,9 @@ func exerciseStartupRedis(t *testing.T, binary string) {
 		assertNoPerm(t, ctx, user, "flushall")
 		assertNoPerm(t, ctx, user, "memory", "purge")
 		assertNoPerm(t, ctx, user, "eval", "return 1", "0")
+		assertNoPerm(t, ctx, user, "randomkey")
+		assertNoPerm(t, ctx, user, "scan", "0")
+		assertNoPerm(t, ctx, user, "get", "secret:hidden")
 		hash := passwordHash(t, ctx, user, "mcp-app")
 		if strings.Contains(output.String(), hash) {
 			t.Fatal("startup log contained another user's password hash")
@@ -149,12 +160,16 @@ func exerciseStartupRedis(t *testing.T, binary string) {
 			{"script", "flush"},
 			{"script", "debug", "no"},
 		}
+		denied = append(denied, []any{"randomkey"}, []any{"scan", "0"}, []any{"get", "secret:hidden"})
 		if major >= 7 {
 			denied = append(denied,
 				[]any{"function", "flush"},
 				[]any{"function", "delete", "nosuch"},
 				[]any{"function", "load", "#!lua name=lib\nredis.register_function('k', function() return 1 end)"},
 			)
+		}
+		if major >= 8 {
+			denied = append(denied, []any{"trimslots", "ranges", "1", "0", "0"})
 		}
 		for _, args := range denied {
 			assertNoPerm(t, ctx, user, args...)
@@ -199,6 +214,24 @@ func exerciseStartupRedis(t *testing.T, binary string) {
 		})
 	}
 
+	if major >= 8 {
+		t.Run("trimslots direct", func(t *testing.T) {
+			_, err := openLiveAdapter(t, addr, "mcp-trim", "trim-secret")
+			assertStartupCode(t, err, StartupCodeUnsafeServiceRole)
+			assertTrimslotsPermitted(t, ctx, admin, addr, "mcp-trim", "trim-secret")
+		})
+		t.Run("trimslots through categories", func(t *testing.T) {
+			_, err := openLiveAdapter(t, addr, "mcp-trimcat", "trimcat-secret")
+			assertStartupCode(t, err, StartupCodeUnsafeServiceRole)
+			assertTrimslotsPermitted(t, ctx, admin, addr, "mcp-trimcat", "trimcat-secret")
+		})
+		t.Run("trimslots selector", func(t *testing.T) {
+			_, err := openLiveAdapter(t, addr, "mcp-trimsel", "trimsel-secret")
+			assertStartupCode(t, err, StartupCodeUnsafeServiceRole)
+			assertTrimslotsPermitted(t, ctx, admin, addr, "mcp-trimsel", "trimsel-secret")
+		})
+	}
+
 	t.Run("opt out does not skip probe failure", func(t *testing.T) {
 		_, err := openLiveAdapterOpt(t, addr, "mcp-noprobe", "noprobe-secret", true)
 		assertStartupCode(t, err, StartupCodePrivilegeProbeFailed)
@@ -206,6 +239,18 @@ func exerciseStartupRedis(t *testing.T, binary string) {
 			t.Fatalf("probe error leaked password: %v", err)
 		}
 	})
+}
+
+func assertTrimslotsPermitted(t *testing.T, ctx context.Context, admin redis.UniversalClient, addr, username, password string) {
+	t.Helper()
+	user := userClient(t, addr, username, password)
+	err := user.Do(ctx, "trimslots", "ranges", "1", "0", "0").Err()
+	if err == nil || strings.Contains(strings.ToLower(err.Error()), "noperm") {
+		t.Fatalf("TRIMSLOTS error = %v, want a non-permission failure", err)
+	}
+	if got, getErr := admin.Get(ctx, "secret:hidden").Result(); getErr != nil || got != "topsecret" {
+		t.Fatalf("secret:hidden = %q, %v after TRIMSLOTS", got, getErr)
+	}
 }
 
 func setRedisUser(t *testing.T, ctx context.Context, admin redis.UniversalClient, args ...any) {

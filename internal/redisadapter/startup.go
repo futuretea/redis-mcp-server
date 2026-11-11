@@ -566,7 +566,13 @@ func buildDanger(categories map[string][]string) dangerModel {
 		addDangerousSub(&model, spec)
 	}
 	for _, member := range categories["scripting"] {
-		addScriptingMember(&model, member)
+		addReportedMember(&model, member, true)
+	}
+	// @dangerous is the server's own set. Redis 8 puts TRIMSLOTS and BACKUP
+	// here without putting them in @admin or @scripting. Commands this server
+	// does not advertise are not added.
+	for _, member := range categories["dangerous"] {
+		addReportedMember(&model, member, false)
 	}
 	for _, member := range categories["admin"] {
 		if _, allowed := probeCommandAllowlist[member]; allowed {
@@ -588,9 +594,12 @@ func buildDanger(categories map[string][]string) dangerModel {
 	return model
 }
 
-func addScriptingMember(model *dangerModel, member string) {
+func addReportedMember(model *dangerModel, member string, anySub bool) {
 	member = strings.ToLower(strings.TrimSpace(member))
 	if member == "" {
+		return
+	}
+	if _, allowed := probeCommandAllowlist[member]; allowed {
 		return
 	}
 	command, _, hasSub := strings.Cut(member, "|")
@@ -602,7 +611,9 @@ func addScriptingMember(model *dangerModel, member string) {
 		addDangerousSub(model, member)
 		return
 	}
-	model.anySub[command] = struct{}{}
+	if anySub {
+		model.anySub[command] = struct{}{}
+	}
 }
 
 func addDangerousSub(model *dangerModel, spec string) {
@@ -669,6 +680,10 @@ var whollyDangerousCommands = []string{
 	"pfdebug", "pfselftest", "sentinel",
 	"function", "script",
 	"eval", "evalsha", "eval_ro", "evalsha_ro", "fcall", "fcall_ro",
+	// Keyless name enumeration. A key pattern does not apply. SCAN exists on
+	// every supported server. TRIMSLOTS does not, so it is not added to a
+	// builtin category; Redis 8 reports it through @dangerous.
+	"randomkey", "scan", "trimslots",
 }
 
 // starUnsafeCommands are unsafe when every subcommand is granted. A single

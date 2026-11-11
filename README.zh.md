@@ -94,11 +94,13 @@ Sentinel 必须设置 `sentinel_master`；Cluster 使用 `addresses` 作为 seed
 - `FLUSHALL`、`FLUSHDB`、`SWAPDB` 或 `MIGRATE`
 - 服务端代码以及全局函数或脚本控制：`@scripting`，包括 `EVAL`、`EVALSHA`、`FCALL`、`SCRIPT DEBUG`、`SCRIPT FLUSH`、`SCRIPT LOAD`、`SCRIPT KILL`、`FUNCTION FLUSH`、`FUNCTION DELETE`、`FUNCTION LOAD`、`FUNCTION RESTORE` 和 `FUNCTION KILL`
 - `MEMORY PURGE`
+- 该服务器 `@dangerous` 类别中的每个命令。Redis 8 把 `TRIMSLOTS` 和 `BACKUP` 放在这里，它们不在 `@admin` 或 `@scripting` 中，而 `@write` 和 `@keyspace` 会授予 `TRIMSLOTS`
+- `RANDOMKEY` 和 `SCAN`。两者都返回 key 名称，并且不接收 key 参数，因此 key pattern 对它们不起作用
 - 整个 `ACL`、`CLIENT`、`CLUSTER`、`FUNCTION`、`SCRIPT` 或 `MEMORY` 命令
 
-下列探测命令本身不会导致拒绝：`ACL WHOAMI`、`ACL GETUSER`、`ACL CAT`。Redis 不能把 `ACL GETUSER` 限制为当前用户名，因此该账号也能读取所有用户的 ACL 密码哈希。启动时只对已认证用户调用它，不会记录或返回该回复。`CLUSTER SLOTS`、`CLUSTER NODES`、`CLUSTER SHARDS` 等集群发现命令不会导致拒绝，`MEMORY USAGE` 和 `CLIENT SETNAME` 也不会。账号必须能够执行这些探测命令，否则即使打开 opt-out，启动也会以 `[redis_privilege_probe_failed]` 失败。连接被拒绝时以 `[redis_connection_failed]` 失败，opt-out 不会跳过它。
+下列探测命令本身不会导致拒绝：`ACL WHOAMI`、`ACL GETUSER`、`ACL CAT`。Redis 不能把 `ACL GETUSER` 限制为当前用户名，因此该账号也能读取所有用户的 ACL 密码哈希。这种探测披露与 `RANDOMKEY` 或 `SCAN` 返回的 key 名称不是一回事。启动时只对已认证用户调用 `ACL GETUSER`，不会记录或返回该回复。`CLUSTER SLOTS`、`CLUSTER NODES`、`CLUSTER SHARDS` 等集群发现命令不会导致拒绝，`MEMORY USAGE` 和 `CLIENT SETNAME` 也不会。账号必须能够执行这些探测命令，否则即使打开 opt-out，启动也会以 `[redis_privilege_probe_failed]` 失败。连接被拒绝时以 `[redis_connection_failed]` 失败，opt-out 不会跳过它。
 
-只拥有所需读取命令和探测命令的账号可以用默认配置启动，不需要 opt-out。Redis 6.2 的 `@read` 包含 `memory`，且 `MEMORY PURGE` 不是独立的 ACL 名称，因此读取账号还需要 `-memory`。业务账号也一样：先授予数据类别，再撤销全局操作。`+@write` 包含 `FLUSHALL`，在 Redis 7 上还包含 `FUNCTION FLUSH`、`FUNCTION DELETE`、`FUNCTION LOAD` 和 `FUNCTION RESTORE`。`+@connection` 包含 `CLIENT KILL`。`+@slow` 和 `+@scripting` 包含 `EVAL` 和 `SCRIPT DEBUG`。先授予宽泛类别，再撤销 `@admin`、`@dangerous` 和 `@scripting`，然后撤销单独的全局命令，最后把探测命令加回去。Redis 6.2 会把 `-function`、`-memory|purge` 这类未知名称视为 ACL 错误。在该版本使用 `-memory` 和 `-@scripting`。
+只拥有所需读取命令和探测命令的账号可以用默认配置启动，不需要 opt-out。`@read` 包含 `RANDOMKEY` 和 `SCAN`，因此读取账号还需要 `-randomkey` 和 `-scan`。Redis 6.2 的 `@read` 包含 `memory`，且 `MEMORY PURGE` 不是独立的 ACL 名称，因此该账号还需要 `-memory`。业务账号也一样：先授予数据类别，再撤销全局操作。`+@write` 包含 `FLUSHALL`，在 Redis 7 上还包含 `FUNCTION FLUSH`、`FUNCTION DELETE`、`FUNCTION LOAD` 和 `FUNCTION RESTORE`。Redis 8 的 `+@write` 还包含 `TRIMSLOTS`。`+@connection` 包含 `CLIENT KILL`。`+@slow` 和 `+@scripting` 包含 `EVAL` 和 `SCRIPT DEBUG`。先授予宽泛类别，再撤销 `@admin`、`@dangerous` 和 `@scripting`，然后撤销 `RANDOMKEY`、`SCAN` 以及其他单独的全局命令，最后把探测命令加回去。Redis 6.2 会把 `-function`、`-memory|purge` 这类未知名称视为 ACL 错误。在该版本使用 `-memory` 和 `-@scripting`。`-randomkey` 和 `-scan` 在 Redis 6.2 上有效。
 
 ```redis
 ACL SETUSER mcp-reader on >strong-password ~app:* resetchannels &
@@ -106,6 +108,8 @@ ACL SETUSER mcp-reader on >strong-password ~app:* resetchannels &
   +@read
   -@admin
   -@dangerous
+  -randomkey
+  -scan
   +ping
   +acl|whoami
   +acl|getuser
@@ -118,6 +122,7 @@ ACL SETUSER mcp-app on >strong-password ~app:* resetchannels &
   +@read +@write +@string +@hash +@list +@set +@sortedset +@stream +@fast +@keyspace +@connection
   -@admin -@dangerous -@scripting
   -flushall -flushdb -swapdb -migrate -memory|purge
+  -randomkey -scan
   +ping +acl|whoami +acl|getuser +acl|cat
   +cluster|slots +cluster|nodes +cluster|shards
 ```
@@ -149,7 +154,7 @@ disabled_tools:
 
 ### 限制 Redis 账号和 keyspace
 
-使用专用 Redis ACL 账号连接。只授予所选工具所需的命令和 key pattern，不要使用管理员或应用所有者账号。除非设置 `allow_unsafe_database_role`，启动时会拒绝 `@admin`、`@scripting`、`FLUSHALL`、`FLUSHDB`、`FUNCTION FLUSH`、`SCRIPT DEBUG`、`MEMORY PURGE`、`CONFIG`、`DEBUG`、`SHUTDOWN` 以及“服务账号”一节列出的其他命令。只读 Redis 账号仍能泄露其有权读取的所有 key，因此应把密钥和其他租户的数据排除在允许的 key pattern 之外。
+使用专用 Redis ACL 账号连接。只授予所选工具所需的命令和 key pattern，不要使用管理员或应用所有者账号。除非设置 `allow_unsafe_database_role`，启动时会拒绝 `@admin`、`@dangerous`、`@scripting`、`FLUSHALL`、`FLUSHDB`、`TRIMSLOTS`、`FUNCTION FLUSH`、`SCRIPT DEBUG`、`MEMORY PURGE`、`RANDOMKEY`、`SCAN`、`CONFIG`、`DEBUG`、`SHUTDOWN` 以及“服务账号”一节列出的其他命令。key pattern 只限制那些带 key 参数的命令。它不适用于无 key 命令。`RANDOMKEY` 和 `SCAN` 会返回整个 keyspace 的 key 名称，包括该 pattern 无法 `GET` 的名称。`DBSIZE` 仍会把这些 key 计入总数。`redis_key` 的 `random_key` 和 `redis_observe` 的 `scan` 会调用 `RANDOMKEY` 和 `SCAN`，因此撤销了这些命令的租户账号不能使用这两个操作。`ACL GETUSER` 仍是单独的探测权限，不是 key 名称列表。
 
 ### 将 HTTP 和 SSE 放在认证边界之后
 
@@ -157,7 +162,7 @@ disabled_tools:
 
 ### 限制枚举并核对实际工具目录
 
-基于 `SCAN` 的操作避免了会阻塞 Redis 的 `KEYS` 命令，且每页集合结果有上限；但持续请求仍可枚举大量 key。应在网关层对请求频率、扫描量、延迟和错误设置配额与监控。部署前检查实际目录：
+`SCAN` 不接收 key 参数，因此 key pattern 不能限制它。租户账号应撤销 `SCAN` 和 `RANDOMKEY`。如果这两个命令仍然被授予，重复的 `SCAN` 请求可以列出该 pattern 之外的 key 名称。每页集合结果仍有上限。应在网关层对请求频率、扫描量、延迟和错误设置配额与监控。部署前检查实际目录：
 
 ```bash
 ./bin/redis-mcp-server tools list --config production.yaml

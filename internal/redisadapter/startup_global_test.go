@@ -65,9 +65,9 @@ func TestVerifyStartupAllowsBusinessDataPlaneAfterGlobalRevokes(t *testing.T) {
 		"keyspace":   {"dbsize", "scan", "flushall"},
 	}
 	rules := []string{
-		"-@all +@read +@write +@string +@connection +@keyspace -@admin -@dangerous -@scripting -flushall -flushdb -swapdb -migrate -memory|purge +ping +acl|whoami +acl|getuser +acl|cat +cluster|slots +cluster|nodes +cluster|shards",
-		"+@all -@admin -@dangerous -@scripting -function -script -eval -evalsha -fcall -memory -memory|purge",
-		"-@all +@read +memory|usage +ping +acl|whoami +acl|getuser +acl|cat",
+		"-@all +@read +@write +@string +@connection +@keyspace -@admin -@dangerous -@scripting -flushall -flushdb -swapdb -migrate -memory|purge -randomkey -scan +ping +acl|whoami +acl|getuser +acl|cat +cluster|slots +cluster|nodes +cluster|shards",
+		"+@all -@admin -@dangerous -@scripting -function -script -eval -evalsha -fcall -memory -memory|purge -randomkey -scan",
+		"-@all +@read +memory|usage -randomkey -scan +ping +acl|whoami +acl|getuser +acl|cat",
 	}
 	for _, rule := range rules {
 		t.Run(rule, func(t *testing.T) {
@@ -86,6 +86,76 @@ func TestVerifyStartupAllowsBusinessDataPlaneAfterGlobalRevokes(t *testing.T) {
 	}
 }
 
+func TestVerifyStartupRejectsServerDangerousCategoryAndKeylessNames(t *testing.T) {
+	redis8 := map[string][]string{
+		"write":     {"set", "trimslots", "flushall"},
+		"keyspace":  {"trimslots", "scan", "randomkey"},
+		"slow":      {"trimslots", "scan", "randomkey", "backup", "backup|start"},
+		"dangerous": {"trimslots", "flushall", "backup|start", "keys"},
+		"read":      {"get", "randomkey", "scan"},
+	}
+	unsafe := []struct {
+		name  string
+		rules []string
+	}{
+		{"direct trimslots", []string{"-@all +trimslots +ping +acl|whoami +acl|getuser +acl|cat"}},
+		{"write category", []string{"-@all +@read +@write +@keyspace +@slow -@admin -@scripting -flushall -flushdb -swapdb -migrate -memory|purge +ping +acl|whoami +acl|getuser +acl|cat"}},
+		{"trimslots selector", []string{"-@all +@read -randomkey -scan +ping +acl|whoami +acl|getuser +acl|cat", "-@all +trimslots"}},
+		{"randomkey", []string{"-@all +randomkey +ping +acl|whoami +acl|getuser +acl|cat"}},
+		{"scan", []string{"-@all +scan +ping +acl|whoami +acl|getuser +acl|cat"}},
+		{"read category keeps keyless names", []string{"-@all +@read -@admin -@dangerous +ping +acl|whoami +acl|getuser +acl|cat"}},
+	}
+	for _, rule := range unsafe {
+		t.Run(rule.name, func(t *testing.T) {
+			adapter, err := openStartupAdapter(t, false, fakeACLProbe{
+				username:   "mcp-reader",
+				user:       aclUserView{CommandRules: rule.rules},
+				categories: redis8,
+			})
+			if adapter != nil {
+				t.Fatal("startup returned an adapter")
+			}
+			assertStartupCode(t, err, StartupCodeUnsafeServiceRole)
+		})
+	}
+
+	t.Run("dangerous category revoke", func(t *testing.T) {
+		adapter, err := openStartupAdapter(t, false, fakeACLProbe{
+			username: "mcp-app",
+			user: aclUserView{CommandRules: []string{
+				"-@all +@read +@write +@keyspace -@admin -@dangerous -@scripting -flushall -flushdb -swapdb -migrate -memory|purge -randomkey -scan +ping +acl|whoami +acl|getuser +acl|cat",
+			}},
+			categories: redis8,
+		})
+		if err != nil {
+			t.Fatalf("VerifyStartup: %v", err)
+		}
+		if adapter == nil {
+			t.Fatal("startup adapter = nil")
+		}
+	})
+
+	t.Run("older write category has no trimslots", func(t *testing.T) {
+		adapter, err := openStartupAdapter(t, false, fakeACLProbe{
+			username: "mcp-app",
+			user: aclUserView{CommandRules: []string{
+				"-@all +@write -@dangerous -function|flush -randomkey -scan +ping +acl|whoami +acl|getuser +acl|cat",
+			}},
+			categories: map[string][]string{
+				"write":     {"set", "flushall", "function|flush"},
+				"dangerous": {"flushall", "keys"},
+				"read":      {"get"},
+			},
+		})
+		if err != nil {
+			t.Fatalf("VerifyStartup: %v", err)
+		}
+		if adapter == nil {
+			t.Fatal("startup adapter = nil")
+		}
+	})
+}
+
 func TestVerifyStartupRedis6ProbeSubcommandsStaySafe(t *testing.T) {
 	categories := map[string][]string{
 		"admin":      {"acl", "config", "client", "cluster", "debug", "shutdown", "module"},
@@ -99,7 +169,7 @@ func TestVerifyStartupRedis6ProbeSubcommandsStaySafe(t *testing.T) {
 		adapter, err := openStartupAdapter(t, false, fakeACLProbe{
 			username: "mcp-reader",
 			user: aclUserView{CommandRules: []string{
-				"-@all +@read -@admin -@dangerous -memory +ping +acl|whoami +acl|getuser +acl|cat",
+				"-@all +@read -@admin -@dangerous -memory -randomkey -scan +ping +acl|whoami +acl|getuser +acl|cat",
 			}},
 			categories: categories,
 		})

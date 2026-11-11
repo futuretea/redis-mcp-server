@@ -94,11 +94,13 @@ After the process connects, and before any tool runs a Redis command, startup re
 - `FLUSHALL`, `FLUSHDB`, `SWAPDB`, or `MIGRATE`
 - server-side code and global function or script control: `@scripting`, including `EVAL`, `EVALSHA`, `FCALL`, `SCRIPT DEBUG`, `SCRIPT FLUSH`, `SCRIPT LOAD`, `SCRIPT KILL`, `FUNCTION FLUSH`, `FUNCTION DELETE`, `FUNCTION LOAD`, `FUNCTION RESTORE`, and `FUNCTION KILL`
 - `MEMORY PURGE`
+- every command in that server's `@dangerous` category. Redis 8 adds `TRIMSLOTS` and `BACKUP` there. They are not in `@admin` or `@scripting`, and `@write` and `@keyspace` grant `TRIMSLOTS`
+- `RANDOMKEY` and `SCAN`. Both return key names and do not take a key argument, so a key pattern does not apply to them
 - the whole `ACL`, `CLIENT`, `CLUSTER`, `FUNCTION`, `SCRIPT`, or `MEMORY` command
 
-These probe commands are not a rejection by themselves: `ACL WHOAMI`, `ACL GETUSER`, and `ACL CAT`. `ACL GETUSER` cannot be limited to the current username, so this account can also read every user's ACL password hash. Startup calls it only for the authenticated user and does not log or return that reply. Cluster discovery commands such as `CLUSTER SLOTS`, `CLUSTER NODES`, and `CLUSTER SHARDS` are not a rejection, and neither is `MEMORY USAGE` or `CLIENT SETNAME`. The account must be allowed to run the probe, or startup fails with `[redis_privilege_probe_failed]` even when the opt-out is set. A refused connection fails with `[redis_connection_failed]` and is not skipped by the opt-out.
+These probe commands are not a rejection by themselves: `ACL WHOAMI`, `ACL GETUSER`, and `ACL CAT`. `ACL GETUSER` cannot be limited to the current username, so this account can also read every user's ACL password hash. That probe disclosure is separate from key names returned by `RANDOMKEY` or `SCAN`. Startup calls `ACL GETUSER` only for the authenticated user and does not log or return that reply. Cluster discovery commands such as `CLUSTER SLOTS`, `CLUSTER NODES`, and `CLUSTER SHARDS` are not a rejection, and neither is `MEMORY USAGE` or `CLIENT SETNAME`. The account must be allowed to run the probe, or startup fails with `[redis_privilege_probe_failed]` even when the opt-out is set. A refused connection fails with `[redis_connection_failed]` and is not skipped by the opt-out.
 
-An account limited to the read commands it needs, plus the probe commands, starts with the default configuration. No opt-out is required. On Redis 6.2, `@read` includes `memory`, and `MEMORY PURGE` is not its own ACL name, so the read account also needs `-memory`. The same shape works for a business account that grants the data categories and then revokes the global operations. `+@write` includes `FLUSHALL` and, on Redis 7, `FUNCTION FLUSH`, `FUNCTION DELETE`, `FUNCTION LOAD`, and `FUNCTION RESTORE`. `+@connection` includes `CLIENT KILL`. `+@slow` and `+@scripting` include `EVAL` and `SCRIPT DEBUG`. Grant the broad category first, then revoke `@admin`, `@dangerous`, and `@scripting`, then revoke the individual global commands, then add the probe commands back. Redis 6.2 rejects unknown names such as `-function` and `-memory|purge`. Use `-memory` and `-@scripting` there.
+An account limited to the read commands it needs, plus the probe commands, starts with the default configuration. No opt-out is required. `@read` includes `RANDOMKEY` and `SCAN`, so the read account also needs `-randomkey` and `-scan`. On Redis 6.2, `@read` includes `memory`, and `MEMORY PURGE` is not its own ACL name, so that account also needs `-memory`. The same shape works for a business account that grants the data categories and then revokes the global operations. `+@write` includes `FLUSHALL` and, on Redis 7, `FUNCTION FLUSH`, `FUNCTION DELETE`, `FUNCTION LOAD`, and `FUNCTION RESTORE`. On Redis 8 it also includes `TRIMSLOTS`. `+@connection` includes `CLIENT KILL`. `+@slow` and `+@scripting` include `EVAL` and `SCRIPT DEBUG`. Grant the broad category first, then revoke `@admin`, `@dangerous`, and `@scripting`, then revoke `RANDOMKEY`, `SCAN`, and the other individual global commands, then add the probe commands back. Redis 6.2 rejects unknown names such as `-function` and `-memory|purge`. Use `-memory` and `-@scripting` there. `-randomkey` and `-scan` are valid on Redis 6.2.
 
 ```redis
 ACL SETUSER mcp-reader on >strong-password ~app:* resetchannels &
@@ -106,6 +108,8 @@ ACL SETUSER mcp-reader on >strong-password ~app:* resetchannels &
   +@read
   -@admin
   -@dangerous
+  -randomkey
+  -scan
   +ping
   +acl|whoami
   +acl|getuser
@@ -118,6 +122,7 @@ ACL SETUSER mcp-app on >strong-password ~app:* resetchannels &
   +@read +@write +@string +@hash +@list +@set +@sortedset +@stream +@fast +@keyspace +@connection
   -@admin -@dangerous -@scripting
   -flushall -flushdb -swapdb -migrate -memory|purge
+  -randomkey -scan
   +ping +acl|whoami +acl|getuser +acl|cat
   +cluster|slots +cluster|nodes +cluster|shards
 ```
@@ -149,7 +154,7 @@ disabled_tools:
 
 ### Restrict the Redis account and keyspace
 
-Connect with a dedicated Redis ACL account. Grant it only the commands and key patterns needed by the selected tools; do not use an administrator or application-owner account. Startup rejects `@admin`, `@scripting`, `FLUSHALL`, `FLUSHDB`, `FUNCTION FLUSH`, `SCRIPT DEBUG`, `MEMORY PURGE`, `CONFIG`, `DEBUG`, `SHUTDOWN`, and the other commands listed under Service account unless `allow_unsafe_database_role` is set. A read-only Redis account can still disclose every key it can read, so keep secrets and unrelated tenant data outside its permitted key patterns.
+Connect with a dedicated Redis ACL account. Grant it only the commands and key patterns needed by the selected tools; do not use an administrator or application-owner account. Startup rejects `@admin`, `@dangerous`, `@scripting`, `FLUSHALL`, `FLUSHDB`, `TRIMSLOTS`, `FUNCTION FLUSH`, `SCRIPT DEBUG`, `MEMORY PURGE`, `RANDOMKEY`, `SCAN`, `CONFIG`, `DEBUG`, `SHUTDOWN`, and the other commands listed under Service account unless `allow_unsafe_database_role` is set. A key pattern limits commands that name a key. It does not apply to keyless commands. `RANDOMKEY` and `SCAN` return key names from the whole keyspace, including names the pattern cannot `GET`. `DBSIZE` still counts those keys. `redis_key` `random_key` and `redis_observe` `scan` call `RANDOMKEY` and `SCAN`, so a tenant profile that revokes those commands cannot use those operations. `ACL GETUSER` remains a separate probe permission and is not a key-name listing.
 
 ### Put HTTP and SSE behind an authenticated boundary
 
@@ -157,7 +162,7 @@ Prefer stdio for local MCP clients. When using HTTP or SSE, place the server beh
 
 ### Bound enumeration and verify the deployed catalog
 
-`SCAN`-based operations avoid the blocking `KEYS` command and each collection page is bounded, but repeated requests can still enumerate a large keyspace. Apply gateway quotas and monitoring for request rate, scan volume, latency, and errors. Before deployment, inspect the actual catalog:
+`SCAN` does not take a key, so a key pattern does not limit it. A tenant profile revokes `SCAN` and `RANDOMKEY`. Where those commands remain granted, repeated `SCAN` requests can list key names outside that pattern. Each collection page is still bounded. Apply gateway quotas and monitoring for request rate, scan volume, latency, and errors. Before deployment, inspect the actual catalog:
 
 ```bash
 ./bin/redis-mcp-server tools list --config production.yaml
