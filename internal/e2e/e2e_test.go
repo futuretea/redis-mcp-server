@@ -143,8 +143,11 @@ func writeConfig(t *testing.T, target redisTarget) string {
 	if err != nil {
 		t.Fatalf("marshal Redis addresses: %v", err)
 	}
+	// The compose Redis default user can run every command, including @admin
+	// and FLUSHALL. This fixture opts out of that rejection. Unit tests cover
+	// the default-deny path with restricted ACL rules.
 	config := fmt.Sprintf(
-		"redis:\n  topology: %s\n  addresses: %s\n  sentinel_master: %q\n  write_enabled: false\n",
+		"allow_unsafe_database_role: true\nredis:\n  topology: %s\n  addresses: %s\n  sentinel_master: %q\n  write_enabled: false\n",
 		target.name,
 		addresses,
 		target.sentinelMaster,

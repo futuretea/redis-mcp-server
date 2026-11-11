@@ -68,9 +68,9 @@ func runServer(ctx context.Context, cfgFile string, streams IOStreams, v *viper.
 	} else if err := logging.Initialize(cfg.LogLevel, streams.ErrOut); err != nil {
 		return fmt.Errorf("initialize logging: %w", err)
 	}
-	toolsets, adapter, err := runtimeToolsets(cfg)
+	toolsets, adapter, err := runtimeToolsets(ctx, cfg)
 	if err != nil {
-		return fmt.Errorf("create Redis adapter: %w", err)
+		return err
 	}
 
 	server, err := mcpserver.NewServer(mcpserver.Configuration{

@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"fmt"
 	"io"
 
@@ -95,9 +96,13 @@ func buildToolCatalog(cfg *config.StaticConfig) ([]toolset.ServerTool, error) {
 	})
 }
 
-func runtimeToolsets(cfg *config.StaticConfig) ([]toolset.Toolset, *redisadapter.Adapter, error) {
+func runtimeToolsets(ctx context.Context, cfg *config.StaticConfig) ([]toolset.Toolset, *redisadapter.Adapter, error) {
 	adapter, err := redisadapter.New(cfg.Redis)
 	if err != nil {
+		return nil, nil, err
+	}
+	if err := adapter.VerifyStartup(ctx, cfg.AllowUnsafeDatabaseRole); err != nil {
+		_ = adapter.Close()
 		return nil, nil, err
 	}
 	return []toolset.Toolset{redistoolset.NewToolset(adapter, cfg.Redis.WriteEnabled)}, adapter, nil

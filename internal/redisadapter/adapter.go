@@ -16,12 +16,14 @@ type Adapter struct {
 	topology      string
 	client        redis.UniversalClient
 	continuations *continuationStore
+	aclProbe      aclProbe
 	close         sync.Once
 	closeErr      error
 }
 
-// New constructs a topology-specific client without probing Redis. The caller
-// owns Close and no configuration value retains the password.
+// New constructs a topology-specific client without probing Redis. Service
+// startup must call VerifyStartup before any tool command. The caller owns
+// Close and no configuration value retains the password.
 func New(cfg config.RedisConfig) (*Adapter, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
