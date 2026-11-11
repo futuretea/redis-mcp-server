@@ -14,7 +14,8 @@ const startupRoleOptOutMessage = "database service role is not permitted; allow_
 
 const (
 	// StartupCodeUnsafeServiceRole is the default-deny rejection for an account
-	// that can run administrative or destructive Redis commands.
+	// that can run administrative commands, global data erasure, server-side
+	// code, or MEMORY PURGE.
 	StartupCodeUnsafeServiceRole = "unsafe_service_role"
 	// StartupCodeConnectionFailed means Redis could not be reached.
 	StartupCodeConnectionFailed = "connection_failed"
@@ -330,7 +331,7 @@ type grantState struct {
 
 func rulesUnsafe(rules []string, categories map[string][]string) (bool, error) {
 	model := buildDanger(categories)
-	parents := knownParents(categories, model)
+	parents := knownParents(categories)
 	for _, rule := range rules {
 		unsafe, err := oneRuleUnsafe(rule, categories, model, parents)
 		if err != nil {
@@ -499,10 +500,14 @@ func (g *grantState) unsafe(model dangerModel) bool {
 			return true
 		}
 		if _, whole := model.anySub[parent]; whole {
-			for _, allowed := range g.subs[parent] {
-				if allowed {
-					return true
+			for sub, allowed := range g.subs[parent] {
+				if !allowed {
+					continue
 				}
+				if _, probe := probeCommandAllowlist[parent+"|"+sub]; probe {
+					continue
+				}
+				return true
 			}
 		}
 	}
@@ -526,25 +531,15 @@ func containsSub(denied map[string]struct{}, sub string) bool {
 	return ok
 }
 
-func knownParents(categories map[string][]string, model dangerModel) []string {
+func knownParents(categories map[string][]string) []string {
 	seen := make(map[string]struct{})
-	add := func(command string) {
-		if command != "" {
-			seen[command] = struct{}{}
-		}
-	}
 	for _, members := range categories {
 		for _, member := range members {
 			command, _, _ := strings.Cut(member, "|")
-			add(command)
+			if command != "" {
+				seen[command] = struct{}{}
+			}
 		}
-	}
-	for parent := range model.parents {
-		add(parent)
-	}
-	for spec := range model.subs {
-		command, _, _ := strings.Cut(spec, "|")
-		add(command)
 	}
 	parents := make([]string, 0, len(seen))
 	for parent := range seen {
@@ -564,8 +559,14 @@ func buildDanger(categories map[string][]string) dangerModel {
 		model.parents[parent] = struct{}{}
 		model.anySub[parent] = struct{}{}
 	}
+	for _, parent := range starUnsafeCommands {
+		model.parents[parent] = struct{}{}
+	}
 	for _, spec := range dangerousSubcommands {
 		addDangerousSub(&model, spec)
+	}
+	for _, member := range categories["scripting"] {
+		addScriptingMember(&model, member)
 	}
 	for _, member := range categories["admin"] {
 		if _, allowed := probeCommandAllowlist[member]; allowed {
@@ -580,9 +581,28 @@ func buildDanger(categories map[string][]string) dangerModel {
 			addDangerousSub(&model, member)
 			continue
 		}
-		model.anySub[command] = struct{}{}
+		// A bare @admin name makes the whole command unsafe. On Redis 6 that
+		// name is the ACL object for every subcommand, and the probe
+		// subcommands are still safe on their own.
 	}
 	return model
+}
+
+func addScriptingMember(model *dangerModel, member string) {
+	member = strings.ToLower(strings.TrimSpace(member))
+	if member == "" {
+		return
+	}
+	command, _, hasSub := strings.Cut(member, "|")
+	if command == "" {
+		return
+	}
+	model.parents[command] = struct{}{}
+	if hasSub {
+		addDangerousSub(model, member)
+		return
+	}
+	model.anySub[command] = struct{}{}
 }
 
 func addDangerousSub(model *dangerModel, spec string) {
@@ -630,8 +650,9 @@ func mergeACLCategories(extra map[string][]string) map[string][]string {
 	return merged
 }
 
-// probeCommandAllowlist is the read-only ACL introspection this process needs.
-// Any other @admin command or subcommand is rejected.
+// probeCommandAllowlist is the introspection this process needs. ACL GETUSER
+// cannot be limited to the current user, so the account can also read other
+// users' password hashes. The reply is not logged or returned.
 var probeCommandAllowlist = map[string]struct{}{
 	"acl|whoami":  {},
 	"acl|getuser": {},
@@ -646,7 +667,13 @@ var whollyDangerousCommands = []string{
 	"module", "monitor", "sync", "psync", "replconf",
 	"latency", "slowlog", "lastsave", "role",
 	"pfdebug", "pfselftest", "sentinel",
+	"function", "script",
+	"eval", "evalsha", "eval_ro", "evalsha_ro", "fcall", "fcall_ro",
 }
+
+// starUnsafeCommands are unsafe when every subcommand is granted. A single
+// non-purge memory subcommand, such as MEMORY USAGE, stays allowed.
+var starUnsafeCommands = []string{"memory"}
 
 var dangerousSubcommands = []string{
 	"config|get", "config|set", "config|resetstat", "config|rewrite",
@@ -658,6 +685,9 @@ var dangerousSubcommands = []string{
 	"cluster|saveconfig", "cluster|set-config-epoch", "cluster|setslot",
 	"cluster|slaves", "cluster|count-failure-reports",
 	"client|kill", "client|list", "client|no-evict", "client|pause", "client|unblock", "client|unpause",
+	"function|flush", "function|delete", "function|load", "function|restore", "function|kill",
+	"script|flush", "script|debug", "script|kill", "script|load",
+	"memory|purge",
 }
 
 func builtinACLCategories() map[string][]string {

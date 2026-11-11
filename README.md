@@ -92,11 +92,13 @@ After the process connects, and before any tool runs a Redis command, startup re
 
 - a command in the `@admin` category, including `CONFIG`, `DEBUG`, `SHUTDOWN`, `ACL SETUSER`, `BGSAVE`, `REPLICAOF`, `MODULE`, `MONITOR`, `CLIENT KILL`, and cluster administration subcommands such as `CLUSTER FAILOVER` and `CLUSTER RESET`
 - `FLUSHALL`, `FLUSHDB`, `SWAPDB`, or `MIGRATE`
-- the whole `ACL`, `CLIENT`, or `CLUSTER` command
+- server-side code and global function or script control: `@scripting`, including `EVAL`, `EVALSHA`, `FCALL`, `SCRIPT DEBUG`, `SCRIPT FLUSH`, `SCRIPT LOAD`, `SCRIPT KILL`, `FUNCTION FLUSH`, `FUNCTION DELETE`, `FUNCTION LOAD`, `FUNCTION RESTORE`, and `FUNCTION KILL`
+- `MEMORY PURGE`
+- the whole `ACL`, `CLIENT`, `CLUSTER`, `FUNCTION`, `SCRIPT`, or `MEMORY` command
 
-These probe commands are not a rejection by themselves: `ACL WHOAMI`, `ACL GETUSER`, and `ACL CAT`. Cluster discovery commands such as `CLUSTER SLOTS`, `CLUSTER NODES`, and `CLUSTER SHARDS` are not a rejection either. The account must be allowed to run the probe, or startup fails with `[redis_privilege_probe_failed]` even when the opt-out is set. A refused connection fails with `[redis_connection_failed]` and is not skipped by the opt-out.
+These probe commands are not a rejection by themselves: `ACL WHOAMI`, `ACL GETUSER`, and `ACL CAT`. `ACL GETUSER` cannot be limited to the current username, so this account can also read every user's ACL password hash. Startup calls it only for the authenticated user and does not log or return that reply. Cluster discovery commands such as `CLUSTER SLOTS`, `CLUSTER NODES`, and `CLUSTER SHARDS` are not a rejection, and neither is `MEMORY USAGE` or `CLIENT SETNAME`. The account must be allowed to run the probe, or startup fails with `[redis_privilege_probe_failed]` even when the opt-out is set. A refused connection fails with `[redis_connection_failed]` and is not skipped by the opt-out.
 
-An account limited to the read commands it needs, plus the probe commands, starts with the default configuration. No opt-out is required. The same is true for a business account that grants read and write categories and then revokes `@admin`, `@dangerous`, `FLUSHALL`, `FLUSHDB`, `SWAPDB`, and `MIGRATE`. `+@write` includes `FLUSHALL`. `+@connection` includes `CLIENT KILL`. Grant the broad category first, then revoke the dangerous commands, then add the probe commands back.
+An account limited to the read commands it needs, plus the probe commands, starts with the default configuration. No opt-out is required. On Redis 6.2, `@read` includes `memory`, and `MEMORY PURGE` is not its own ACL name, so the read account also needs `-memory`. The same shape works for a business account that grants the data categories and then revokes the global operations. `+@write` includes `FLUSHALL` and, on Redis 7, `FUNCTION FLUSH`, `FUNCTION DELETE`, `FUNCTION LOAD`, and `FUNCTION RESTORE`. `+@connection` includes `CLIENT KILL`. `+@slow` and `+@scripting` include `EVAL` and `SCRIPT DEBUG`. Grant the broad category first, then revoke `@admin`, `@dangerous`, and `@scripting`, then revoke the individual global commands, then add the probe commands back. Redis 6.2 rejects unknown names such as `-function` and `-memory|purge`. Use `-memory` and `-@scripting` there.
 
 ```redis
 ACL SETUSER mcp-reader on >strong-password ~app:* resetchannels &
@@ -108,6 +110,16 @@ ACL SETUSER mcp-reader on >strong-password ~app:* resetchannels &
   +acl|whoami
   +acl|getuser
   +acl|cat
+```
+
+```redis
+ACL SETUSER mcp-app on >strong-password ~app:* resetchannels &
+  -@all
+  +@read +@write +@string +@hash +@list +@set +@sortedset +@stream +@fast +@keyspace +@connection
+  -@admin -@dangerous -@scripting
+  -flushall -flushdb -swapdb -migrate -memory|purge
+  +ping +acl|whoami +acl|getuser +acl|cat
+  +cluster|slots +cluster|nodes +cluster|shards
 ```
 
 `allow_unsafe_database_role` defaults to `false`. Set it to `true` in the config file, or export `MCP_ALLOW_UNSAFE_DATABASE_ROLE=true`, only when you cannot provision a least-privilege account. The server logs a warning and skips this privilege rejection. A refused connection, a failed ACL probe, and every other startup check still stop startup. The Redis user can still run `FLUSHALL`, `CONFIG`, `DEBUG`, or `SHUTDOWN` outside the tool catalog: this server does not expose a raw command, but the account itself can. Enable the option only for a Redis instance you control.
@@ -137,7 +149,7 @@ disabled_tools:
 
 ### Restrict the Redis account and keyspace
 
-Connect with a dedicated Redis ACL account. Grant it only the commands and key patterns needed by the selected tools; do not use an administrator or application-owner account. Startup rejects `@admin`, `FLUSHALL`, `FLUSHDB`, `CONFIG`, `DEBUG`, `SHUTDOWN`, and the other administrative commands listed under Service account unless `allow_unsafe_database_role` is set. A read-only Redis account can still disclose every key it can read, so keep secrets and unrelated tenant data outside its permitted key patterns.
+Connect with a dedicated Redis ACL account. Grant it only the commands and key patterns needed by the selected tools; do not use an administrator or application-owner account. Startup rejects `@admin`, `@scripting`, `FLUSHALL`, `FLUSHDB`, `FUNCTION FLUSH`, `SCRIPT DEBUG`, `MEMORY PURGE`, `CONFIG`, `DEBUG`, `SHUTDOWN`, and the other commands listed under Service account unless `allow_unsafe_database_role` is set. A read-only Redis account can still disclose every key it can read, so keep secrets and unrelated tenant data outside its permitted key patterns.
 
 ### Put HTTP and SSE behind an authenticated boundary
 

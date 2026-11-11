@@ -126,7 +126,7 @@ func TestVerifyStartupStartsRestrictedACLWithoutOptOut(t *testing.T) {
 	output := captureStartupLog(t)
 	rules := []string{
 		"-@all +@read -@admin -@dangerous +ping +acl|whoami +acl|getuser +acl|cat",
-		"-@all +@read +@write +@connection +@string +@fast +@slow -@admin -@dangerous -flushall -flushdb -swapdb -migrate +ping +acl|whoami +acl|getuser +acl|cat +restore +cluster|slots +cluster|nodes +cluster|shards",
+		"-@all +@read +@write +@connection +@string +@fast +@keyspace -@admin -@dangerous -@scripting -flushall -flushdb -swapdb -migrate -memory|purge +ping +acl|whoami +acl|getuser +acl|cat +cluster|slots +cluster|nodes +cluster|shards",
 		"-@all +cluster|slots +cluster|nodes +cluster|shards +ping +acl|whoami +acl|getuser +acl|cat",
 		"-@all +@connection -@admin +ping +acl|whoami +acl|getuser +acl|cat",
 		"+@all -@admin -@dangerous",
