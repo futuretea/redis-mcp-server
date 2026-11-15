@@ -137,6 +137,9 @@ func maskAny(policy masking.Policy, value any, selected bool, budget *masking.Bu
 }
 
 func maskSlice(policy masking.Policy, values []any, budget *masking.Budget) ([]any, error) {
+	if values == nil {
+		return nil, nil
+	}
 	out := make([]any, len(values))
 	for index, value := range values {
 		masked, err := maskAny(policy, value, false, budget)
@@ -149,6 +152,9 @@ func maskSlice(policy masking.Policy, values []any, budget *masking.Budget) ([]a
 }
 
 func maskStrings(policy masking.Policy, values []string, budget *masking.Budget) ([]string, error) {
+	if values == nil {
+		return nil, nil
+	}
 	out := make([]string, len(values))
 	for index, value := range values {
 		masked, err := maskDataString(policy, value, budget)
@@ -415,6 +421,9 @@ func maskReflectValue(policy masking.Policy, value reflect.Value, budget *maskin
 	case reflect.Float32, reflect.Float64:
 		return maskFloat(policy, value.Float(), budget)
 	case reflect.Slice, reflect.Array:
+		if value.Kind() == reflect.Slice && value.IsNil() {
+			return nil, nil
+		}
 		if value.Type().Elem().Kind() == reflect.Uint8 {
 			return nil, masking.ErrFailed
 		}
@@ -442,6 +451,9 @@ func maskReflectValue(policy masking.Policy, value reflect.Value, budget *maskin
 		}
 		return out, nil
 	case reflect.Map:
+		if value.IsNil() {
+			return nil, nil
+		}
 		if value.Type().Key().Kind() != reflect.String {
 			return nil, masking.ErrFailed
 		}

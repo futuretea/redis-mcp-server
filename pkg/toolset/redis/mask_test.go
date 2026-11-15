@@ -332,6 +332,89 @@ func TestMaskingShapes(t *testing.T) {
 	})
 }
 
+func TestEnabledMaskingPreservesNilSlices(t *testing.T) {
+	policy := maskPolicy(t, `{"enabled":true,"values":["synthetic-token-value"]}`)
+	scan := map[string]any{
+		"items":    map[string]any{"keys": []string(nil)},
+		"metadata": map[string]any{"next_cursor": "", "complete": true},
+	}
+	empty := map[string]any{
+		"items":    map[string]any{"keys": []string{}},
+		"metadata": map[string]any{"next_cursor": "", "complete": true},
+	}
+	pending := map[string]any{"items": []redis.XPendingExt(nil)}
+	active := NewToolset(&payloadAdapter{data: scan}, false)
+	active.SetPolicy(policy)
+	disabled := NewToolset(&payloadAdapter{data: scan}, false)
+
+	got := callShape(t, active, "redis_observe", "scan", scan)
+	want := callShape(t, disabled, "redis_observe", "scan", scan)
+	if got != want || !strings.Contains(got, `"keys":null`) || strings.Contains(got, `"keys":[]`) {
+		t.Fatalf("nil scan keys = %s\ndisabled %s", got, want)
+	}
+	if keys, ok := scan["items"].(map[string]any)["keys"].([]string); !ok || keys != nil {
+		t.Fatal("masking replaced the source nil slice")
+	}
+
+	got = callShape(t, active, "redis_observe", "scan", empty)
+	want = callShape(t, disabled, "redis_observe", "scan", empty)
+	if got != want || !strings.Contains(got, `"keys":[]`) {
+		t.Fatalf("empty scan keys = %s\ndisabled %s", got, want)
+	}
+
+	got = callShape(t, active, "redis_stream", "pending", pending)
+	want = callShape(t, disabled, "redis_stream", "pending", pending)
+	if got != want || !strings.Contains(got, `"items":null`) || strings.Contains(got, `"items":[]`) {
+		t.Fatalf("nil pending = %s\ndisabled %s", got, want)
+	}
+	if items, ok := pending["items"].([]redis.XPendingExt); !ok || items != nil {
+		t.Fatal("masking replaced the source nil pending list")
+	}
+
+	box := map[string]any{"nested": nilBox{}}
+	got = callShape(t, active, "redis_string", "get", box)
+	want = callShape(t, disabled, "redis_string", "get", box)
+	if !nilFieldsMatch(t, got, want) {
+		t.Fatalf("nil box = %s\ndisabled %s", got, want)
+	}
+}
+
+type nilBox struct {
+	Keys  []string
+	Extra map[string]string
+	Note  *string
+}
+
+func nilFieldsMatch(t *testing.T, got, want string) bool {
+	t.Helper()
+	var left, right map[string]any
+	if err := json.Unmarshal([]byte(got), &left); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(want), &right); err != nil {
+		t.Fatal(err)
+	}
+	return jsonEqual(left["data"], right["data"])
+}
+
+func jsonEqual(left, right any) bool {
+	rawLeft, leftErr := json.Marshal(left)
+	rawRight, rightErr := json.Marshal(right)
+	return leftErr == nil && rightErr == nil && string(rawLeft) == string(rawRight)
+}
+
+func callShape(t *testing.T, toolset *Toolset, toolName, operation string, data map[string]any) string {
+	t.Helper()
+	adapter := toolset.adapter.(*payloadAdapter)
+	adapter.data = data
+	args := fixtureArgs(toolName, operation, contracts[toolName+"/"+operation])
+	result, err := toolByName(t, toolset.GetTools(), toolName).Handler(context.Background(), map[string]any{"operation": operation, "args": args})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return result
+}
+
 func TestDisabledPolicyKeepsDumpAndReflectiveValidation(t *testing.T) {
 	adapter := &payloadAdapter{data: map[string]any{"value": binaryPair(maskSentinel)}}
 	tool := toolByName(t, NewToolset(adapter, false).GetTools(), "redis_key")
