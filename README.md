@@ -157,7 +157,7 @@ Invalid masking configuration, including `enabled: true` with no rules, stops st
 
 This covers the server's known Redis result shapes. It does not detect every private value, compressed payload, unknown encoding, or arbitrary PII.
 
-The copied engine is mysql-mcp-server commit `15b411195f86c8de01f10b22a4ee664130242a11`. Independent review of that commit failed, and this server does not patch those rules. A replacement pin is expected to replace `pkg/core/masking`. Until that pin lands, do not treat masking as complete. The open gaps are value patterns on invalid UTF-8, a bound on expanded invalid-UTF-8 output, a zero-width alternative such as `\b|sk_live_4242` that skips the token, and value rules on JSON number and bool tokens. Redis tests for those four cases are in the suite.
+The copied engine is mysql-mcp-server commit `bea65e8ab8ae5070b8ae17ab0e5c6c05bdccfd39`. This server does not patch those rules. MySQL's independent re-review of that pin is still pending. One budget is shared across a whole Redis result. A value-rule hit on a native number or bool replaces that whole value with JSON `null`. Invalid UTF-8 can carry an ASCII value pattern, expanded output is rejected before it is built, and a zero-width alternative such as `\b|sk_live_4242` is rejected. Masking still does not detect every private value, compressed payload, unknown encoding, or arbitrary PII.
 
 ## Production safety guide
 

@@ -8,9 +8,8 @@ import (
 	"github.com/futuretea/redis-mcp-server/pkg/core/masking"
 )
 
-// Redis regressions for masking engine pin 15b411195f86c8de01f10b22a4ee664130242a11.
-// Independent review failed that pin. These tests state the Redis output contract.
-// Do not patch pkg/core/masking to satisfy them. The replacement pin owns the rule fix.
+// Redis regressions for the corrected masking engine pin
+// bea65e8ab8ae5070b8ae17ab0e5c6c05bdccfd39. They run through the Redis emit path.
 
 func TestInvalidUTF8ValuePatternRemovesASCIIToken(t *testing.T) {
 	raw := append([]byte{0xff}, []byte("sk_live_4242")...)

@@ -86,14 +86,10 @@ func maskResult(policy masking.Policy, data map[string]any) (map[string]any, err
 	if data == nil {
 		return nil, nil
 	}
-	masked, err := maskObject(policy, data, false)
-	if err != nil {
-		return nil, err
-	}
-	return masked, nil
+	return maskObject(policy, data, false, &masking.Budget{})
 }
 
-func maskAny(policy masking.Policy, value any, selected bool) (any, error) {
+func maskAny(policy masking.Policy, value any, selected bool, budget *masking.Budget) (any, error) {
 	if selected {
 		return redactWhole(policy, value)
 	}
@@ -102,48 +98,48 @@ func maskAny(policy masking.Policy, value any, selected bool) (any, error) {
 	}
 	switch typed := value.(type) {
 	case string:
-		return maskDataString(policy, typed)
+		return maskDataString(policy, typed, budget)
 	case bool:
-		return maskScalarText(policy, strconv.FormatBool(typed), typed)
+		return maskScalarText(policy, strconv.FormatBool(typed), typed, budget)
 	case float64:
-		return maskFloat(policy, typed)
+		return maskFloat(policy, typed, budget)
 	case float32:
-		return maskFloat(policy, float64(typed))
+		return maskFloat(policy, float64(typed), budget)
 	case int:
-		return maskScalarText(policy, strconv.Itoa(typed), typed)
+		return maskScalarText(policy, strconv.Itoa(typed), typed, budget)
 	case int8:
-		return maskScalarText(policy, strconv.FormatInt(int64(typed), 10), typed)
+		return maskScalarText(policy, strconv.FormatInt(int64(typed), 10), typed, budget)
 	case int16:
-		return maskScalarText(policy, strconv.FormatInt(int64(typed), 10), typed)
+		return maskScalarText(policy, strconv.FormatInt(int64(typed), 10), typed, budget)
 	case int32:
-		return maskScalarText(policy, strconv.FormatInt(int64(typed), 10), typed)
+		return maskScalarText(policy, strconv.FormatInt(int64(typed), 10), typed, budget)
 	case int64:
-		return maskScalarText(policy, strconv.FormatInt(typed, 10), typed)
+		return maskScalarText(policy, strconv.FormatInt(typed, 10), typed, budget)
 	case uint:
-		return maskScalarText(policy, strconv.FormatUint(uint64(typed), 10), typed)
+		return maskScalarText(policy, strconv.FormatUint(uint64(typed), 10), typed, budget)
 	case uint8:
-		return maskScalarText(policy, strconv.FormatUint(uint64(typed), 10), typed)
+		return maskScalarText(policy, strconv.FormatUint(uint64(typed), 10), typed, budget)
 	case uint16:
-		return maskScalarText(policy, strconv.FormatUint(uint64(typed), 10), typed)
+		return maskScalarText(policy, strconv.FormatUint(uint64(typed), 10), typed, budget)
 	case uint32:
-		return maskScalarText(policy, strconv.FormatUint(uint64(typed), 10), typed)
+		return maskScalarText(policy, strconv.FormatUint(uint64(typed), 10), typed, budget)
 	case uint64:
-		return maskScalarText(policy, strconv.FormatUint(typed, 10), typed)
+		return maskScalarText(policy, strconv.FormatUint(typed, 10), typed, budget)
 	case map[string]any:
-		return maskObject(policy, typed, false)
+		return maskObject(policy, typed, false, budget)
 	case []any:
-		return maskSlice(policy, typed)
+		return maskSlice(policy, typed, budget)
 	case []string:
-		return maskStrings(policy, typed)
+		return maskStrings(policy, typed, budget)
 	default:
-		return maskReflected(policy, value)
+		return maskReflected(policy, value, budget)
 	}
 }
 
-func maskSlice(policy masking.Policy, values []any) ([]any, error) {
+func maskSlice(policy masking.Policy, values []any, budget *masking.Budget) ([]any, error) {
 	out := make([]any, len(values))
 	for index, value := range values {
-		masked, err := maskAny(policy, value, false)
+		masked, err := maskAny(policy, value, false, budget)
 		if err != nil {
 			return nil, err
 		}
@@ -152,10 +148,10 @@ func maskSlice(policy masking.Policy, values []any) ([]any, error) {
 	return out, nil
 }
 
-func maskStrings(policy masking.Policy, values []string) ([]string, error) {
+func maskStrings(policy masking.Policy, values []string, budget *masking.Budget) ([]string, error) {
 	out := make([]string, len(values))
 	for index, value := range values {
-		masked, err := maskDataString(policy, value)
+		masked, err := maskDataString(policy, value, budget)
 		if err != nil {
 			return nil, err
 		}
@@ -164,7 +160,7 @@ func maskStrings(policy masking.Policy, values []string) ([]string, error) {
 	return out, nil
 }
 
-func maskObject(policy masking.Policy, obj map[string]any, dynamic bool) (map[string]any, error) {
+func maskObject(policy masking.Policy, obj map[string]any, dynamic bool, budget *masking.Budget) (map[string]any, error) {
 	if obj == nil {
 		return nil, nil
 	}
@@ -174,7 +170,7 @@ func maskObject(policy masking.Policy, obj map[string]any, dynamic bool) (map[st
 			if err != nil {
 				return nil, err
 			}
-			return maskBinary(policy, raw)
+			return maskBinary(policy, raw, budget)
 		}
 	}
 	fieldSelected := false
@@ -195,7 +191,7 @@ func maskObject(policy masking.Policy, obj map[string]any, dynamic bool) (map[st
 				outKey = policy.Placeholder()
 				selected = true
 			} else {
-				maskedKey, err := maskDataString(policy, key)
+				maskedKey, err := maskDataString(policy, key, budget)
 				if err != nil {
 					return nil, err
 				}
@@ -210,13 +206,13 @@ func maskObject(policy masking.Policy, obj map[string]any, dynamic bool) (map[st
 		var err error
 		switch {
 		case !dynamic && key == "next_cursor":
-			masked, err = maskCursor(policy, value)
+			masked, err = maskCursor(policy, value, budget)
 		case !dynamic && key == "values_by_key":
-			masked, err = maskDynamicValue(policy, value)
+			masked, err = maskDynamicValue(policy, value, budget)
 		case fieldSelected && key == "value":
 			masked, err = redactWhole(policy, value)
 		default:
-			masked, err = maskAny(policy, value, selected)
+			masked, err = maskAny(policy, value, selected, budget)
 		}
 		if err != nil {
 			return nil, err
@@ -226,7 +222,7 @@ func maskObject(policy masking.Policy, obj map[string]any, dynamic bool) (map[st
 	return out, nil
 }
 
-func maskDynamicValue(policy masking.Policy, value any) (any, error) {
+func maskDynamicValue(policy masking.Policy, value any, budget *masking.Budget) (any, error) {
 	if value == nil {
 		return nil, nil
 	}
@@ -234,7 +230,7 @@ func maskDynamicValue(policy masking.Policy, value any) (any, error) {
 	if !ok {
 		return nil, masking.ErrFailed
 	}
-	return maskObject(policy, obj, true)
+	return maskObject(policy, obj, true, budget)
 }
 
 func fieldNameSelected(policy masking.Policy, obj map[string]any) (bool, error) {
@@ -288,11 +284,11 @@ func asBinary(value any) ([]byte, bool, error) {
 	return raw, true, nil
 }
 
-func maskBinary(policy masking.Policy, raw []byte) (map[string]any, error) {
+func maskBinary(policy masking.Policy, raw []byte, budget *masking.Budget) (map[string]any, error) {
 	if utf8.Valid(raw) && policy.MatchName(string(raw)) {
 		return binaryPair(policy.Placeholder()), nil
 	}
-	masked, err := policy.MaskBytes(raw)
+	masked, err := policy.MaskBytes(raw, budget)
 	if err != nil {
 		return nil, err
 	}
@@ -323,7 +319,7 @@ func redactWhole(policy masking.Policy, value any) (any, error) {
 	return nil, nil
 }
 
-func maskCursor(policy masking.Policy, value any) (any, error) {
+func maskCursor(policy masking.Policy, value any, budget *masking.Budget) (any, error) {
 	text, ok := value.(string)
 	if !ok {
 		return nil, masking.ErrFailed
@@ -331,19 +327,19 @@ func maskCursor(policy masking.Policy, value any) (any, error) {
 	if policy.MatchName(text) {
 		return nil, masking.ErrFailed
 	}
-	masked, err := policy.MaskText(text)
+	masked, err := policy.MaskText(text, budget)
 	if err != nil || masked != text {
 		return nil, masking.ErrFailed
 	}
 	return text, nil
 }
 
-func maskDataString(policy masking.Policy, value string) (string, error) {
+func maskDataString(policy masking.Policy, value string, budget *masking.Budget) (string, error) {
 	var out string
 	if policy.MatchName(value) {
 		out = policy.Placeholder()
 	} else {
-		masked, err := policy.MaskBytes([]byte(value))
+		masked, err := policy.MaskBytes([]byte(value), budget)
 		if err != nil {
 			return "", err
 		}
@@ -355,7 +351,7 @@ func maskDataString(policy masking.Policy, value string) (string, error) {
 	return out, nil
 }
 
-func maskFloat(policy masking.Policy, value float64) (any, error) {
+func maskFloat(policy masking.Policy, value float64, budget *masking.Budget) (any, error) {
 	if math.IsNaN(value) || math.IsInf(value, 0) {
 		return nil, masking.ErrFailed
 	}
@@ -363,7 +359,7 @@ func maskFloat(policy masking.Policy, value float64) (any, error) {
 	if err != nil {
 		return nil, masking.ErrFailed
 	}
-	return maskScalarText(policy, encoded, value)
+	return maskScalarText(policy, encoded, value, budget)
 }
 
 func jsonMarshalNumber(value float64) (string, error) {
@@ -374,25 +370,25 @@ func jsonMarshalNumber(value float64) (string, error) {
 	return string(encoded), nil
 }
 
-func maskScalarText(policy masking.Policy, text string, original any) (any, error) {
-	masked, err := policy.MaskText(text)
+func maskScalarText(policy masking.Policy, text string, original any, budget *masking.Budget) (any, error) {
+	hit, err := policy.MatchScalar(text, budget)
 	if err != nil {
 		return nil, err
 	}
-	if masked != text {
+	if hit {
 		return nil, nil
 	}
 	return original, nil
 }
 
-func maskReflected(policy masking.Policy, value any) (any, error) {
+func maskReflected(policy masking.Policy, value any, budget *masking.Budget) (any, error) {
 	if value == nil {
 		return nil, nil
 	}
-	return maskReflectValue(policy, reflect.ValueOf(value))
+	return maskReflectValue(policy, reflect.ValueOf(value), budget)
 }
 
-func maskReflectValue(policy masking.Policy, value reflect.Value) (any, error) {
+func maskReflectValue(policy masking.Policy, value reflect.Value, budget *masking.Budget) (any, error) {
 	if !value.IsValid() {
 		return nil, nil
 	}
@@ -404,17 +400,17 @@ func maskReflectValue(policy masking.Policy, value reflect.Value) (any, error) {
 	}
 	switch value.Kind() {
 	case reflect.String:
-		return maskDataString(policy, value.String())
+		return maskDataString(policy, value.String(), budget)
 	case reflect.Bool:
-		return maskScalarText(policy, strconv.FormatBool(value.Bool()), value.Bool())
+		return maskScalarText(policy, strconv.FormatBool(value.Bool()), value.Bool(), budget)
 	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
 		number := value.Int()
-		return maskScalarText(policy, strconv.FormatInt(number, 10), number)
+		return maskScalarText(policy, strconv.FormatInt(number, 10), number, budget)
 	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
 		number := value.Uint()
-		return maskScalarText(policy, strconv.FormatUint(number, 10), number)
+		return maskScalarText(policy, strconv.FormatUint(number, 10), number, budget)
 	case reflect.Float32, reflect.Float64:
-		return maskFloat(policy, value.Float())
+		return maskFloat(policy, value.Float(), budget)
 	case reflect.Slice, reflect.Array:
 		if value.Type().Elem().Kind() == reflect.Uint8 {
 			return nil, masking.ErrFailed
@@ -423,7 +419,7 @@ func maskReflectValue(policy masking.Policy, value reflect.Value) (any, error) {
 		for index := 0; index < value.Len(); index++ {
 			items[index] = value.Index(index).Interface()
 		}
-		return maskSlice(policy, items)
+		return maskSlice(policy, items, budget)
 	case reflect.Struct:
 		out := make(map[string]any, value.NumField())
 		for index := 0; index < value.NumField(); index++ {
@@ -432,7 +428,7 @@ func maskReflectValue(policy masking.Policy, value reflect.Value) (any, error) {
 			if !ok {
 				continue
 			}
-			masked, err := maskReflectValue(policy, value.Field(index))
+			masked, err := maskReflectValue(policy, value.Field(index), budget)
 			if err != nil {
 				return nil, err
 			}
@@ -452,7 +448,7 @@ func maskReflectValue(policy masking.Policy, value reflect.Value) (any, error) {
 		for _, key := range value.MapKeys() {
 			obj[key.String()] = value.MapIndex(key).Interface()
 		}
-		return maskObject(policy, obj, false)
+		return maskObject(policy, obj, false, budget)
 	default:
 		return nil, masking.ErrFailed
 	}
