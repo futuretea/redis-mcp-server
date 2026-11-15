@@ -76,6 +76,19 @@ func TestVersionCommand(t *testing.T) {
 	}
 }
 
+func TestToolsListRejectsMaskingDocumentWithoutEcho(t *testing.T) {
+	configureRedis(t)
+	secret := "synthetic-token-value"
+	t.Setenv("MCP_MASKING_JSON", `{"enabled":true,"extra":"`+secret+`"}`)
+	var out bytes.Buffer
+	root := cmd.NewRootCommand(cmd.IOStreams{Out: &out, ErrOut: &out})
+	root.SetArgs([]string{"tools", "list"})
+	err := root.Execute()
+	if err == nil || !strings.Contains(err.Error(), "invalid masking config") || strings.Contains(err.Error(), secret) || strings.Contains(out.String(), secret) {
+		t.Fatalf("tools list error = %v\n%s", err, out.String())
+	}
+}
+
 func TestToolsUnknownTool(t *testing.T) {
 	configureRedis(t)
 	var out bytes.Buffer

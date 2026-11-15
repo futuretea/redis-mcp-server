@@ -3,7 +3,7 @@ package redisadapter
 
 import (
 	"crypto/tls"
-	"fmt"
+	"errors"
 	"sync"
 
 	"github.com/redis/go-redis/v9"
@@ -65,7 +65,7 @@ func New(cfg config.RedisConfig) (*Adapter, error) {
 			MaxRetries:       -1,
 		})
 	default:
-		return nil, fmt.Errorf("unsupported redis topology %q", cfg.Topology)
+		return nil, errors.New("unsupported redis topology")
 	}
 	return adapter, nil
 }

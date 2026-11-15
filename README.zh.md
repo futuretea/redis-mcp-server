@@ -131,6 +131,34 @@ ACL SETUSER mcp-app on >strong-password ~app:* resetchannels &
 
 警告以 warn 级别记录。HTTP 模式在默认 `info` 日志级别下可以看到它。Stdio 模式会关闭日志，以免污染 MCP 输出。不要使用 Redis 的 `default` 用户。标准服务会授予该用户 `+@all`。
 
+## 输出脱敏
+
+未配置 `masking`、省略 `enabled`，或 `enabled` 为 false 时，脱敏关闭。工具结果、CLI 输出和错误保持现有 JSON。将 `enabled` 设为 true 且至少配置一条规则后，才会从输出中去掉配置的字段名和值。环境变量 `MCP_MASKING_JSON` 一旦存在，就整份替换 YAML 中的对象。空值会被拒绝。未设置该变量时，仍使用 YAML 对象。
+
+```yaml
+masking:
+  enabled: true
+  placeholder: "[masked]"
+  names: ["synthetic_field"]
+  name_patterns: ["token_.+"]
+  values: ["synthetic-token-value"]
+  value_patterns: ["sk_live_[0-9]+"]
+```
+
+```bash
+export MCP_MASKING_JSON='{"enabled":true,"names":["synthetic_field"],"values":["synthetic-token-value"]}'
+```
+
+名称规则匹配完整的动态对象键、哈希 field 或其他数据字符串。值规则按原文做子串匹配，包括单字符字面量，并且只替换一次，不会再搜索占位符。命中的字符串变成占位符。命中的数字、布尔值或其他非字符串变成 JSON `null`。原本的 null 仍是 null，因此结果里的 null 可能是 Redis 缺失值，也可能是被抹掉的值，JSON 类型也可能改变。
+
+Redis 二进制单元先按原始字节脱敏，再同时重写 `utf8` 和 `base64`。两个兄弟字段不一致时，整份结果失败。非法 UTF-8 只保留 `base64`。文本里的 JSON 对象和数组会按 JSON 读取，包括转义后的键。`redis_key` 的 `dump` 是不透明载荷。策略开启时返回 `[redis_masking_failed] result was not returned`，并且没有载荷。策略关闭时，`DUMP` 与原来相同。`metadata.next_cursor` 是 16 字节续页引用，不是存储的 key。规则命中该 token 时，这一页失败，而不是返回原始或改写后的 cursor。
+
+无效脱敏配置，包括 `enabled: true` 但没有任何规则，会使进程在启动时失败，错误是 `invalid masking config`，并且不会回显配置原文。超限、重复键和键冲突使用同一条固定错误，不返回部分载荷。发往 Redis 的命令和参数不变。HTTP 调试日志记录路由类别（`mcp`、`sse`、`message` 或 `other`），不记录原始 path 或 query。
+
+这里覆盖的是本服务已知的 Redis 结果形状。它不会识别每一种私密值、压缩载荷、未知编码或任意 PII。
+
+复制的引擎是 mysql-mcp-server 提交 `6c6f58a343ff61e5f1e220b5cbdff7899afd886d`。本服务不修改那些规则。名称正则先单独解析，再在语法树里锚定整名。`a)|(b` 无效。`(?:a)|(b)` 只匹配完整的 `a` 和 `b`。一次 Redis 结果共用一个 budget。超过输入上限的 base64 在解码前被拒绝，配对的 `utf8` 也不会返回。原生数字或布尔值命中值规则时，整个值变成 JSON `null`。JSON 值会再按容器计一次 budget，因此它可能比同长度的普通字符串更早超限。RE2 取最左优先匹配，较短分支命中后不再找更长分支。这两点是界限。脱敏仍然不会识别每一种私密值、压缩载荷、未知编码或任意 PII。
+
 ## 生产安全指南
 
 本服务会收缩 AI 客户端可使用的 Redis 能力；它不是认证网关，也不是完整的数据访问策略。只读模式会阻止写入，但读取操作仍可能泄露数据或消耗 Redis 容量。
