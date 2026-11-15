@@ -131,6 +131,34 @@ ACL SETUSER mcp-app on >strong-password ~app:* resetchannels &
 
 The warning is logged at warn level. HTTP mode shows it at the default `info` log level. Stdio mode keeps logs disabled so MCP output stays intact. Do not use the Redis `default` user. A standard server grants that user `+@all`.
 
+## Output masking
+
+Masking is off when the `masking` object is absent, when `enabled` is omitted, or when `enabled` is false. Tool results, CLI output, and errors then keep their current JSON. Set `enabled` to true and at least one rule to remove configured field names and values from output. `MCP_MASKING_JSON` replaces the whole YAML object when the variable is present. An empty value is rejected. Unset leaves the YAML object in place.
+
+```yaml
+masking:
+  enabled: true
+  placeholder: "[masked]"
+  names: ["synthetic_field"]
+  name_patterns: ["token_.+"]
+  values: ["synthetic-token-value"]
+  value_patterns: ["sk_live_[0-9]+"]
+```
+
+```bash
+export MCP_MASKING_JSON='{"enabled":true,"names":["synthetic_field"],"values":["synthetic-token-value"]}'
+```
+
+Name rules match a whole dynamic object key, hash field, or other data string. Value rules are substring matches on the original text, including one-character literals. They run once and do not search the placeholder. A matched string becomes the placeholder. A matched number, bool, or other non-string becomes JSON `null`. An existing null stays `null`, so null can be a missing Redis value or a redacted value, and the JSON type can change.
+
+Redis binary cells are masked from the original bytes, then both `utf8` and `base64` are written again from that result. A pair whose siblings disagree is rejected. Invalid UTF-8 stays in `base64` only. JSON objects and arrays stored as text are read as JSON, including escaped keys. `redis_key` `dump` is opaque. With an active policy it returns `[redis_masking_failed] result was not returned` and no payload. With masking off, `DUMP` is unchanged. `metadata.next_cursor` is a 16-byte continuation reference, not the stored key. If a rule matches that token, the page fails instead of returning a raw or rewritten cursor.
+
+Invalid masking configuration, including `enabled: true` with no rules, stops startup with `invalid masking config` and does not echo the document. Bounds, duplicate keys, and key collisions use the same fixed failure and no partial payload. The Redis command and its arguments are unchanged. HTTP debug logs record a route class (`mcp`, `sse`, `message`, or `other`) instead of the raw path or query.
+
+This covers the server's known Redis result shapes. It does not detect every private value, compressed payload, unknown encoding, or arbitrary PII.
+
+The copied engine is mysql-mcp-server commit `15b411195f86c8de01f10b22a4ee664130242a11`. Independent review of that commit failed, and this server does not patch those rules. A replacement pin is expected to replace `pkg/core/masking`. Until that pin lands, do not treat masking as complete. The open gaps are value patterns on invalid UTF-8, a bound on expanded invalid-UTF-8 output, a zero-width alternative such as `\b|sk_live_4242` that skips the token, and value rules on JSON number and bool tokens. Redis tests for those four cases are in the suite.
+
 ## Production safety guide
 
 This server reduces the Redis capabilities exposed to an AI client; it is not an authentication gateway or a complete data-access policy. Read-only mode prevents mutations, but reads can still disclose data or consume Redis capacity.

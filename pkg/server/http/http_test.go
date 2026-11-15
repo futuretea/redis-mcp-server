@@ -1,13 +1,17 @@
 package http_test
 
 import (
+	"bytes"
 	"context"
 	"io"
 	"net"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
+
+	"github.com/rs/zerolog"
 
 	"github.com/futuretea/redis-mcp-server/pkg/core/config"
 	internalhttp "github.com/futuretea/redis-mcp-server/pkg/server/http"
@@ -128,6 +132,27 @@ func (r *responseRecorder) Write(b []byte) (int, error) {
 	return len(b), nil
 }
 func (r *responseRecorder) WriteHeader(statusCode int) { r.status = statusCode }
+
+func TestRequestLogUsesRouteClass(t *testing.T) {
+	secret := "synthetic-token-value"
+	var buf bytes.Buffer
+	logger := zerolog.New(&buf)
+	handler := internalhttp.RequestMiddlewareWithLogger(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	}), logger)
+	for _, target := range []string{"/mcp?" + secret + "=1", "/sse/" + secret, "/message?q=" + secret, "/" + secret} {
+		handler.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodPost, target, nil))
+	}
+	logged := buf.String()
+	if strings.Contains(logged, secret) || strings.Contains(logged, "path") {
+		t.Fatalf("request log leaked the request target: %s", logged)
+	}
+	for _, route := range []string{`"route":"mcp"`, `"route":"other"`} {
+		if !strings.Contains(logged, route) {
+			t.Fatalf("log missing %s: %s", route, logged)
+		}
+	}
+}
 
 func mustNewRequest(t *testing.T, method, path string) *http.Request {
 	t.Helper()

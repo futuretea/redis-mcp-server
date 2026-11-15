@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -9,6 +10,8 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/spf13/viper"
+
+	"github.com/futuretea/redis-mcp-server/pkg/core/masking"
 )
 
 // StaticConfig contains configuration that is fixed when the server starts.
@@ -26,6 +29,9 @@ type StaticConfig struct {
 	// AllowUnsafeDatabaseRole skips only the startup Redis ACL privilege
 	// rejection. Connection and ACL probe failures still abort startup.
 	AllowUnsafeDatabaseRole bool `mapstructure:"allow_unsafe_database_role"`
+
+	// Masking is parsed separately so an unknown field or empty document fails closed.
+	Masking masking.Policy `mapstructure:"-"`
 }
 
 // RedisConfig configures a single explicit Redis topology. Password is never
@@ -57,7 +63,7 @@ func (c *RedisConfig) Validate() error {
 	case "":
 		return fmt.Errorf("redis.topology must be explicitly set to standalone, cluster, or sentinel")
 	default:
-		return fmt.Errorf("redis.topology must be standalone, cluster, or sentinel, got %q", c.Topology)
+		return errors.New("redis.topology must be standalone, cluster, or sentinel")
 	}
 	if len(c.Addresses) == 0 {
 		return fmt.Errorf("redis.addresses must contain at least one address")
@@ -77,7 +83,7 @@ func (c *StaticConfig) Validate() error {
 		return fmt.Errorf("listen must be set when port is non-zero")
 	}
 	if _, err := zerolog.ParseLevel(c.LogLevel); err != nil {
-		return fmt.Errorf("invalid log_level %q: %w", c.LogLevel, err)
+		return errors.New("invalid log_level")
 	}
 	if err := c.Redis.Validate(); err != nil {
 		return err
@@ -124,7 +130,7 @@ func LoadConfig(configPath string, v *viper.Viper) (*StaticConfig, error) {
 		v.SetConfigFile(configPath)
 		v.SetConfigType("yaml")
 		if err := v.ReadInConfig(); err != nil {
-			return nil, fmt.Errorf("read config file: %w", err)
+			return nil, errors.New("invalid config")
 		}
 	}
 
@@ -134,7 +140,7 @@ func LoadConfig(configPath string, v *viper.Viper) (*StaticConfig, error) {
 
 	cfg := &StaticConfig{}
 	if err := v.Unmarshal(cfg); err != nil {
-		return nil, fmt.Errorf("unmarshal config: %w", err)
+		return nil, errors.New("invalid config")
 	}
 
 	cfg.Listen = strings.TrimSpace(cfg.Listen)
@@ -147,7 +153,22 @@ func LoadConfig(configPath string, v *viper.Viper) (*StaticConfig, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, err
 	}
+	policy, err := loadMaskingPolicy(v)
+	if err != nil {
+		return nil, err
+	}
+	cfg.Masking = policy
 	return cfg, nil
+}
+
+func loadMaskingPolicy(v *viper.Viper) (masking.Policy, error) {
+	if raw, ok := os.LookupEnv("MCP_MASKING_JSON"); ok {
+		return masking.ParseJSON(raw)
+	}
+	if v == nil || !v.InConfig("masking") {
+		return masking.Disabled(), nil
+	}
+	return masking.ParseRaw(v.Get("masking"))
 }
 
 func normalizeStringSlice(values []string) []string {

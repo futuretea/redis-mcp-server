@@ -84,7 +84,13 @@ func loadCLIConfig(cmd *cobra.Command, cfgFile string, v *viper.Viper) (*config.
 }
 
 func defaultToolsets(cfg *config.StaticConfig) []toolset.Toolset {
-	return []toolset.Toolset{redistoolset.NewToolset(nil, cfg.Redis.WriteEnabled)}
+	return []toolset.Toolset{redisToolset(cfg, nil)}
+}
+
+func redisToolset(cfg *config.StaticConfig, adapter redistoolset.Adapter) *redistoolset.Toolset {
+	created := redistoolset.NewToolset(adapter, cfg.Redis.WriteEnabled)
+	created.SetPolicy(cfg.Masking)
+	return created
 }
 
 func buildToolCatalog(cfg *config.StaticConfig) ([]toolset.ServerTool, error) {
@@ -105,7 +111,7 @@ func runtimeToolsets(ctx context.Context, cfg *config.StaticConfig) ([]toolset.T
 		_ = adapter.Close()
 		return nil, nil, err
 	}
-	return []toolset.Toolset{redistoolset.NewToolset(adapter, cfg.Redis.WriteEnabled)}, adapter, nil
+	return []toolset.Toolset{redisToolset(cfg, adapter)}, adapter, nil
 }
 
 func newVersionCommand(streams IOStreams) *cobra.Command {

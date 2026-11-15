@@ -8,6 +8,7 @@ import (
 
 	"github.com/mark3labs/mcp-go/mcp"
 
+	"github.com/futuretea/redis-mcp-server/pkg/core/masking"
 	"github.com/futuretea/redis-mcp-server/pkg/toolset"
 )
 
@@ -31,6 +32,7 @@ type Call struct {
 type Toolset struct {
 	adapter      Adapter
 	writeEnabled bool
+	policy       masking.Policy
 }
 
 // NewToolset constructs a catalog without opening a Redis connection.
@@ -429,25 +431,43 @@ func (t *Toolset) handler(spec toolSpec) toolset.ToolHandler {
 	return func(ctx context.Context, params map[string]any) (string, error) {
 		call, err := validateCall(spec, params)
 		if err != nil {
-			return errorEnvelope(operationFrom(params), "invalid_argument", err.Error()), nil
+			return t.failure(spec, operationFrom(params), "invalid_argument", err.Error()), nil
 		}
 		if t.adapter == nil {
-			return errorEnvelope(call.Operation, "unavailable", "Redis adapter is not configured"), nil
+			return t.failure(spec, call.Operation, "unavailable", "Redis adapter is not configured"), nil
 		}
 		data, err := t.adapter.Call(ctx, call)
 		if err != nil {
 			if callErr, ok := err.(*CallError); ok {
 				if callErr.Category == "not_found" {
-					return notFoundEnvelope(call.Operation)
+					return notFoundEnvelope(t.publicOperation(spec, call.Operation))
 				}
 				if callErr.Category == "condition_not_met" {
-					return conditionEnvelope(call.Operation)
+					return conditionEnvelope(t.publicOperation(spec, call.Operation))
 				}
-				return errorEnvelope(call.Operation, callErr.Category, callErr.Message), nil
+				return t.failure(spec, call.Operation, callErr.Category, callErr.Message), nil
 			}
-			return errorEnvelope(call.Operation, "unavailable", err.Error()), nil
+			return t.failure(spec, call.Operation, "unavailable", err.Error()), nil
 		}
-		return okEnvelope(call.Operation, data)
+		if t.policy.Enabled() && spec.name == "redis_key" && call.Operation == "dump" {
+			return t.failure(spec, call.Operation, "unavailable", resultMaskedMessage), nil
+		}
+		if t.policy.Enabled() {
+			masked, maskErr := maskResult(t.policy, data)
+			if maskErr != nil {
+				return t.failure(spec, call.Operation, "unavailable", resultMaskedMessage), nil
+			}
+			data = masked
+		}
+		operation := t.publicOperation(spec, call.Operation)
+		encoded, err := okEnvelope(operation, data)
+		if err != nil {
+			if t.policy.Enabled() {
+				return t.failure(spec, call.Operation, "unavailable", resultMaskedMessage), nil
+			}
+			return "", err
+		}
+		return encoded, nil
 	}
 }
 

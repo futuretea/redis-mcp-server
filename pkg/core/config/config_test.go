@@ -2,6 +2,8 @@ package config_test
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -132,4 +134,61 @@ func TestGetListenAddress(t *testing.T) {
 			}
 		})
 	}
+}
+
+func TestLoadConfigMaskingPrecedence(t *testing.T) {
+	secret := "synthetic-token-value"
+	t.Setenv("MCP_MASKING_JSON", "")
+	os.Unsetenv("MCP_MASKING_JSON")
+	dir := t.TempDir()
+	path := filepath.Join(dir, "redis.yaml")
+	body := []byte("log_level: info\nredis:\n  topology: standalone\n  addresses: [\"127.0.0.1:6379\"]\nmasking:\n  enabled: true\n  names: [\"synthetic_field\"]\n")
+	if err := os.WriteFile(path, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := config.LoadConfig(path, viper.New())
+	if err != nil || !cfg.Masking.Enabled() || !cfg.Masking.MatchName("synthetic_field") {
+		t.Fatalf("file policy enabled=%v err=%v", cfg != nil && cfg.Masking.Enabled(), err)
+	}
+
+	t.Setenv("MCP_MASKING_JSON", `{"enabled":false,"values":["`+secret+`"]}`)
+	cfg, err = config.LoadConfig(path, viper.New())
+	if err != nil || cfg.Masking.Enabled() || strings.Contains(errString(err), secret) {
+		t.Fatalf("env replacement enabled=%v err=%v", cfg != nil && cfg.Masking.Enabled(), err)
+	}
+
+	t.Setenv("MCP_MASKING_JSON", `{"enabled":true,"extra":"`+secret+`"}`)
+	_, err = config.LoadConfig(path, viper.New())
+	if err == nil || err.Error() != "invalid masking config" || strings.Contains(err.Error(), secret) {
+		t.Fatalf("invalid masking error = %v", err)
+	}
+
+	t.Setenv("MCP_MASKING_JSON", " ")
+	_, err = config.LoadConfig(path, viper.New())
+	if err == nil || err.Error() != "invalid masking config" {
+		t.Fatalf("empty masking env error = %v", err)
+	}
+
+	os.Unsetenv("MCP_MASKING_JSON")
+	broken := filepath.Join(dir, "broken.yaml")
+	if err := os.WriteFile(broken, []byte("masking: ["+secret+"\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	_, err = config.LoadConfig(broken, viper.New())
+	if err == nil || strings.Contains(err.Error(), secret) || err.Error() != "invalid config" {
+		t.Fatalf("yaml error = %v", err)
+	}
+
+	t.Setenv("MCP_REDIS_TOPOLOGY", secret)
+	_, err = config.LoadConfig("", viper.New())
+	if err == nil || strings.Contains(err.Error(), secret) {
+		t.Fatalf("topology error = %v", err)
+	}
+}
+
+func errString(err error) string {
+	if err == nil {
+		return ""
+	}
+	return err.Error()
 }

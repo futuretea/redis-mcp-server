@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -13,6 +14,7 @@ import (
 	"github.com/spf13/viper"
 
 	"github.com/futuretea/redis-mcp-server/internal/toolcatalog"
+	"github.com/futuretea/redis-mcp-server/pkg/core/config"
 	"github.com/futuretea/redis-mcp-server/pkg/toolset"
 )
 
@@ -74,7 +76,7 @@ func newToolsDescribeCommand(streams IOStreams, cfgFile *string, v *viper.Viper)
 			}
 			tool, ok := findTool(tools, args[0])
 			if !ok {
-				return fmt.Errorf("unknown tool %q; run 'redis-mcp-server tools list' to see available tools", args[0])
+				return unknownToolError(cfg, args[0])
 			}
 			description := newToolDescription(tool)
 			if jsonOutput {
@@ -106,6 +108,9 @@ func newToolsCallCommand(streams IOStreams, cfgFile *string, v *viper.Viper) *co
 			}
 			params, err := parseToolParams(rawParams, paramsFile, cmd.InOrStdin())
 			if err != nil {
+				if cfg.Masking.Enabled() {
+					return errors.New("invalid tool params")
+				}
 				return err
 			}
 			catalog, err := buildToolCatalog(cfg)
@@ -113,7 +118,7 @@ func newToolsCallCommand(streams IOStreams, cfgFile *string, v *viper.Viper) *co
 				return err
 			}
 			if _, ok := findTool(catalog, args[0]); !ok {
-				return fmt.Errorf("unknown tool %q; run 'redis-mcp-server tools list' to see available tools", args[0])
+				return unknownToolError(cfg, args[0])
 			}
 			toolsets, adapter, err := runtimeToolsets(cmd.Context(), cfg)
 			if err != nil {
@@ -126,7 +131,7 @@ func newToolsCallCommand(streams IOStreams, cfgFile *string, v *viper.Viper) *co
 			}
 			tool, ok := findTool(tools, args[0])
 			if !ok {
-				return fmt.Errorf("unknown tool %q; run 'redis-mcp-server tools list' to see available tools", args[0])
+				return unknownToolError(cfg, args[0])
 			}
 			result, err := tool.Handler(cmd.Context(), params)
 			if err != nil {
@@ -139,6 +144,13 @@ func newToolsCallCommand(streams IOStreams, cfgFile *string, v *viper.Viper) *co
 	command.Flags().StringVar(&rawParams, "params", "{}", "tool parameters as a JSON object")
 	command.Flags().StringVar(&paramsFile, "params-file", "", "path to a JSON file containing tool parameters; use - to read stdin")
 	return command
+}
+
+func unknownToolError(cfg *config.StaticConfig, name string) error {
+	if cfg != nil && cfg.Masking.Enabled() {
+		return errors.New("unknown tool")
+	}
+	return fmt.Errorf("unknown tool %q; run 'redis-mcp-server tools list' to see available tools", name)
 }
 
 func findTool(tools []toolset.ServerTool, name string) (toolset.ServerTool, bool) {

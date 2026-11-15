@@ -9,6 +9,15 @@ disabled_domains: []
 # Skip only the startup rejection of an unsafe Redis role. Connection and ACL
 # probe failures still stop startup. Also MCP_ALLOW_UNSAFE_DATABASE_ROLE.
 allow_unsafe_database_role: false
+# Output masking stays off unless enabled is true and at least one rule is set.
+# MCP_MASKING_JSON, when present, replaces this object. An empty value is rejected.
+# masking:
+#   enabled: true
+#   placeholder: "[masked]"
+#   names: ["synthetic_field"]
+#   name_patterns: ["token_.+"]
+#   values: ["synthetic-token-value"]
+#   value_patterns: ["sk_live_[0-9]+"]
 redis:
   topology: standalone
   addresses: ["127.0.0.1:6379"]
