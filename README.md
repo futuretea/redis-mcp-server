@@ -157,7 +157,7 @@ Invalid masking configuration, including `enabled: true` with no rules, stops st
 
 This covers the server's known Redis result shapes. It does not detect every private value, compressed payload, unknown encoding, or arbitrary PII.
 
-The copied engine is mysql-mcp-server commit `bea65e8ab8ae5070b8ae17ab0e5c6c05bdccfd39`. This server does not patch those rules. MySQL's independent re-review of that pin is still pending. One budget is shared across a whole Redis result. A value-rule hit on a native number or bool replaces that whole value with JSON `null`. Invalid UTF-8 can carry an ASCII value pattern, expanded output is rejected before it is built, and a zero-width alternative such as `\b|sk_live_4242` is rejected. Masking still does not detect every private value, compressed payload, unknown encoding, or arbitrary PII.
+The copied engine is mysql-mcp-server commit `6c6f58a343ff61e5f1e220b5cbdff7899afd886d`. This server does not patch those rules. Name patterns are parsed on their own and then anchored in the syntax tree. `a)|(b` is invalid. `(?:a)|(b)` matches only the whole names `a` and `b`. One budget is shared across a whole Redis result. A base64 cell longer than the input cap is rejected before it is decoded, and the paired `utf8` sibling is not returned. A value-rule hit on a native number or bool replaces that whole value with JSON `null`. A JSON value is counted again as its container, so it can exhaust the budget before a plain string of the same size. RE2 returns the leftmost-first match and does not search a longer alternative after a shorter one matches. Those two are limits. Masking still does not detect every private value, compressed payload, unknown encoding, or arbitrary PII.
 
 ## Production safety guide
 

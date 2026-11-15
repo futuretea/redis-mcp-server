@@ -84,6 +84,42 @@ func TestJSONNumberAndBoolTokensBecomeNull(t *testing.T) {
 	}
 }
 
+func TestNameAnchorRejectsBreakoutAndMatchesWholeNames(t *testing.T) {
+	secret := "synthetic-token-value"
+	_, err := masking.ParseJSON(`{"enabled":true,"values":["` + secret + `"],"name_patterns":["a)|(b"]}`)
+	if err == nil || err.Error() != masking.InvalidConfigMessage || strings.Contains(err.Error(), secret) {
+		t.Fatalf("breakout config error = %v", err)
+	}
+	whole := emitPolicy(t, `{"enabled":true,"name_patterns":["(?:a)|(b)"]}`, map[string]any{
+		"values_by_key": map[string]any{
+			"a":  binaryPair(secret),
+			"ab": binaryPair("keep-visible"),
+		},
+	})
+	if strings.Contains(whole, secret) || strings.Contains(whole, `"a":`) {
+		t.Fatalf("whole name a leaked: %s", whole)
+	}
+	if !strings.Contains(whole, "keep-visible") || !strings.Contains(whole, `"ab"`) {
+		t.Fatalf("longer name changed: %s", whole)
+	}
+	other := emitPolicy(t, `{"enabled":true,"name_patterns":["(?:a)|(b)"]}`, map[string]any{
+		"values_by_key": map[string]any{"b": binaryPair("keep-b"), "aSECRET": binaryPair("keep-secret")},
+	})
+	if strings.Contains(other, `"b":`) || strings.Contains(other, "keep-b") || !strings.Contains(other, "aSECRET") || !strings.Contains(other, "keep-secret") {
+		t.Fatalf("alternation result = %s", other)
+	}
+}
+
+func TestOversizedBase64FailsBeforeDecode(t *testing.T) {
+	encoded := strings.Repeat("A", (1<<20)+1)
+	result := emitPolicy(t, `{"enabled":true,"values":["synthetic-token-value"]}`, map[string]any{
+		"value": map[string]any{"utf8": "synthetic-token-value", "base64": encoded},
+	})
+	if !strings.Contains(result, resultMaskedMessage) || strings.Contains(result, "synthetic-token-value") || strings.Contains(result, strings.Repeat("A", 64)) {
+		t.Fatal("oversized base64 pair was returned")
+	}
+}
+
 func emitPolicy(t *testing.T, raw string, data map[string]any) string {
 	t.Helper()
 	toolset := NewToolset(&payloadAdapter{}, false)

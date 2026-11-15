@@ -262,6 +262,9 @@ func asBinary(value any) ([]byte, bool, error) {
 		if !ok {
 			return nil, false, nil
 		}
+		if !masking.WithinInput(len(text)) {
+			return nil, true, masking.ErrFailed
+		}
 		decoded, err := base64.StdEncoding.DecodeString(text)
 		if err != nil {
 			return nil, true, masking.ErrFailed

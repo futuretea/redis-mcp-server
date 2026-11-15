@@ -189,6 +189,17 @@ func TestLoadConfigMaskingPrecedence(t *testing.T) {
 	}
 }
 
+func TestLoadConfigRejectsEscapedNameAnchor(t *testing.T) {
+	secret := "synthetic-token-value"
+	t.Setenv("MCP_REDIS_TOPOLOGY", "standalone")
+	t.Setenv("MCP_REDIS_ADDRESSES", "127.0.0.1:6379")
+	t.Setenv("MCP_MASKING_JSON", `{"enabled":true,"values":["`+secret+`"],"name_patterns":["a)|(b"]}`)
+	_, err := config.LoadConfig("", viper.New())
+	if err == nil || err.Error() != "invalid masking config" || strings.Contains(err.Error(), secret) || strings.Contains(err.Error(), "a)|") {
+		t.Fatalf("anchor config error = %v", err)
+	}
+}
+
 func errString(err error) string {
 	if err == nil {
 		return ""
