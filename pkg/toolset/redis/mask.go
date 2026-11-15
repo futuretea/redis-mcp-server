@@ -339,7 +339,7 @@ func maskCursor(policy masking.Policy, value any) (any, error) {
 }
 
 func maskDataString(policy masking.Policy, value string) (string, error) {
-	out := value
+	var out string
 	if policy.MatchName(value) {
 		out = policy.Placeholder()
 	} else {

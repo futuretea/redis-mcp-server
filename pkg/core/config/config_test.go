@@ -138,8 +138,9 @@ func TestGetListenAddress(t *testing.T) {
 
 func TestLoadConfigMaskingPrecedence(t *testing.T) {
 	secret := "synthetic-token-value"
-	t.Setenv("MCP_MASKING_JSON", "")
-	os.Unsetenv("MCP_MASKING_JSON")
+	if err := os.Unsetenv("MCP_MASKING_JSON"); err != nil {
+		t.Fatal(err)
+	}
 	dir := t.TempDir()
 	path := filepath.Join(dir, "redis.yaml")
 	body := []byte("log_level: info\nredis:\n  topology: standalone\n  addresses: [\"127.0.0.1:6379\"]\nmasking:\n  enabled: true\n  names: [\"synthetic_field\"]\n")
@@ -169,7 +170,9 @@ func TestLoadConfigMaskingPrecedence(t *testing.T) {
 		t.Fatalf("empty masking env error = %v", err)
 	}
 
-	os.Unsetenv("MCP_MASKING_JSON")
+	if err := os.Unsetenv("MCP_MASKING_JSON"); err != nil {
+		t.Fatal(err)
+	}
 	broken := filepath.Join(dir, "broken.yaml")
 	if err := os.WriteFile(broken, []byte("masking: ["+secret+"\n"), 0o600); err != nil {
 		t.Fatal(err)
