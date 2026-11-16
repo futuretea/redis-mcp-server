@@ -95,10 +95,7 @@ func (p Policy) MatchName(name string) bool {
 	return false
 }
 
-// ParseJSON parses one masking JSON document. It does not read the
-// environment. When MCP_MASKING_JSON is present, LoadConfig passes that raw
-// value to ParseJSON and does not read the YAML masking object. A present
-// empty value is invalid.
+// ParseJSON parses one masking JSON document. A present empty value is invalid.
 func ParseJSON(raw string) (Policy, error) {
 	if strings.TrimSpace(raw) == "" {
 		return Policy{}, invalidConfig()
