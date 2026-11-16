@@ -173,7 +173,7 @@ key pattern 不适用于 `RANDOMKEY` 或 `SCAN`。`redis_key` 的 `random_key` �
 
 `port` 为 0 的 `mcp` 在检查前关闭 zerolog，因此 zerolog 不写这条警告。非零端口的 `mcp` 按 `log_level` 把 zerolog 写到 stderr。默认 `info` 级别包含 `warn`。`tools call` 不关闭 zerolog。Redis 客户端的拨号行独立于 zerolog，仍可能出现在 stderr。
 
-现场启动测试看到主版本大于或等于 7 时，读取账号是 `-@all +@read -@admin -@dangerous -randomkey -scan`，再加上 `+ping +acl|whoami +acl|getuser +acl|cat`。这个形状不撤销 `memory`。同一分支里的应用账号先授予数据类别，再撤销 `@admin`、`@dangerous`、`@scripting`、`flushall`、`flushdb`、`swapdb`、`migrate`、`memory|purge`、`randomkey` 和 `scan`，并加入 `cluster|slots`、`cluster|nodes` 和 `cluster|shards`。报告的主版本低于 7 时，测试源码在读取账号和应用账号上都撤销整个 `memory` 命令，并且应用账号不加入那些 cluster 子命令。仓库工作流不设置 `REDIS_MATRIX_BINARIES`，因此 `make ci` 不运行这个测试。低于 7 的分支是源码文本，不是 CI 执行过的 Redis 版本。
+现场启动测试看到主版本大于或等于 7 时，读取账号是 `-@all +@read -@admin -@dangerous -randomkey -scan`，再加上 `+ping +acl|whoami +acl|getuser +acl|cat`。这个形状不撤销 `memory`。同一分支里的应用账号先授予数据类别，再撤销 `@admin`、`@dangerous`、`@scripting`、`flushall`、`flushdb`、`swapdb`、`migrate`、`memory|purge`、`randomkey` 和 `scan`，并加入 `cluster|slots`、`cluster|nodes` 和 `cluster|shards`。报告的主版本低于 7 时，测试源码在读取账号和应用账号上都撤销整个 `memory` 命令，并且应用账号不加入那些 cluster 子命令。仓库工作流不设置 `REDIS_MATRIX_BINARIES`，因此 `TestVerifyStartupRedisVersionMatrix` 不运行。`make ci` 运行 `make test`，`make test` 运行 `go test ./...`。该命令包含 `TestVerifyStartupAgainstLocalRedis`。`PATH` 上有 `redis-server` 时，这个本地测试调用同一个 `exerciseStartupRedis`。没有该二进制时，测试跳过。这些页面不用 CI 日志判断运行器是否有该二进制，也不判断它的版本。低于 7 的分支是该辅助函数里的源码。只有启动的 `redis-server` 报告主版本低于 7 时才会进入该分支。
 
 `TRIMSLOTS` 在硬编码拒绝列表中。启动注释记录 Redis 8 也把 `TRIMSLOTS` 和 `BACKUP` 放在 `@dangerous` 中，并且 `@write` 和 `@keyspace` 授予 `TRIMSLOTS`。连接的服务器在 `@dangerous` 中报告 `BACKUP` 时，`BACKUP` 会被拒绝。它不在硬编码名称列表中。
 
