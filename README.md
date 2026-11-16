@@ -2,36 +2,29 @@
 
 [中文文档](README.zh.md)
 
-Redis MCP Server exposes a closed, semantic Redis data-plane catalog over MCP and the bundled CLI. It supports explicit standalone, Cluster, and Sentinel configurations. Tools are read-only by default; write tools are registered only when `redis.write_enabled=true`.
+Redis MCP Server exposes a closed Redis catalog over MCP. The default catalog is read-only. Write tools are registered only when `redis.write_enabled` is true. The process does not authenticate clients, and output masking stays off until you enable it.
 
-## Quick start
+The current release is npm `0.2.0`, container tag `v0.2.0`, and git tag `v0.2.0`. Field lists, errors, and the tool catalog are in the [reference](docs/reference.md). Build and release layout are in [development and release](docs/development.md).
 
-```bash
-make build
-./bin/redis-mcp-server tools list --config config.example.yaml
-./bin/redis-mcp-server tools describe redis_string --config config.example.yaml
-./bin/redis-mcp-server tools call redis_string --config config.example.yaml \
-  --params '{"operation":"get","args":{"key":"sample"}}'
-```
+## Install 0.2.0
 
-`tools list` and `tools describe` do not connect to Redis. `tools call` and `mcp` connect, then reject an account that can run administrative commands unless `allow_unsafe_database_role` is set. See Service account.
+The npm package and the container image are the program builds. The [v0.2.0 GitHub release](https://github.com/futuretea/redis-mcp-server/releases/tag/v0.2.0) has notes and GitHub's source archive. It does not attach a `redis-mcp-server` binary. Do not look for a binary download on that page.
 
-The catalog contains `redis_key`, `redis_string`, `redis_hash`, `redis_list`, `redis_set`, `redis_sorted_set`, `redis_stream`, and `redis_observe`. Write-mode additionally registers the corresponding seven `*_write` tools; there is no raw-command tool and no `redis_observe_write`.
-
-Collection responses are bounded to 1–1000 items before reaching Redis. `SCAN`, `HSCAN`, `SSCAN`, and `ZSCAN` return a fixed-length opaque base64url continuation reference, never a Redis-native cursor or buffered value. A continuation remains idle-valid for five minutes after a successful page, with at most 1,000 sessions and 16 MiB of encoded state per adapter; whole sessions are evicted by LRU. Expired or evicted references return `cursor_expired`; a newly unadmittable continuation returns `cursor_unavailable`. Stream entry reads are intentionally absent: the stream catalog is limited to length, bounded pending inspection, and `XCLAIM JUSTID`.
-
-## Use a release
-
-Stable releases use tags in the form `vX.Y.Z`. npm uses `X.Y.Z`; Docker uses `vX.Y.Z`. npm packages support macOS (Intel and Apple Silicon), Linux (x64 and ARM64), and Windows x64. Docker images support Linux `amd64` and `arm64`.
+The npm tarball for 0.2.0 contains the README from that publish. This file is the updated guide. The Chinese guide is [README.zh.md](README.zh.md) in the repository. The npm tarball does not include it.
 
 ### npm
 
+Copy [config.example.yaml](config.example.yaml) to the path you will pass to `--config`. The tracked file is the whole configuration. A shorter file with only the `redis` keys is a different document.
+
 ```bash
+cp config.example.yaml redis-mcp.yaml
 export MCP_REDIS_PASSWORD='your-redis-password'
-npx -y @futuretea/redis-mcp-server@X.Y.Z --config /path/to/redis-mcp.yaml
+npx -y @futuretea/redis-mcp-server@0.2.0 --config "$PWD/redis-mcp.yaml"
 ```
 
-Configure an MCP client that supports stdio with the same version and configuration path:
+`npx` starts `redis-mcp-server mcp`. The process speaks MCP on stdin and stdout. It connects to Redis before it serves. With the example addresses and no Redis on `127.0.0.1:6379`, the process exits non-zero and writes `[redis_connection_failed] connection failed` to stderr. Stdout stays empty.
+
+A stdio client uses the same command. Give the client an absolute configuration path.
 
 ```json
 {
@@ -40,7 +33,7 @@ Configure an MCP client that supports stdio with the same version and configurat
       "command": "npx",
       "args": [
         "-y",
-        "@futuretea/redis-mcp-server@X.Y.Z",
+        "@futuretea/redis-mcp-server@0.2.0",
         "--config",
         "/absolute/path/to/redis-mcp.yaml"
       ],
@@ -52,29 +45,88 @@ Configure an MCP client that supports stdio with the same version and configurat
 }
 ```
 
+The wrapper always inserts the `mcp` subcommand. `npx -y @futuretea/redis-mcp-server@0.2.0 version` does not print the version. It starts `mcp` and then fails if topology is missing. After `npm install @futuretea/redis-mcp-server@0.2.0`, run the platform binary for `version`, `tools`, and `completion`.
+
+| Host | Package | Binary |
+| --- | --- | --- |
+| macOS Intel | `@futuretea/redis-mcp-server-darwin-amd64` | `bin/redis-mcp-server` |
+| macOS Apple Silicon | `@futuretea/redis-mcp-server-darwin-arm64` | `bin/redis-mcp-server` |
+| Linux x64 | `@futuretea/redis-mcp-server-linux-amd64` | `bin/redis-mcp-server` |
+| Linux ARM64 | `@futuretea/redis-mcp-server-linux-arm64` | `bin/redis-mcp-server` |
+| Windows x64 | `@futuretea/redis-mcp-server-windows-amd64` | `bin/redis-mcp-server.exe` |
+
+The linux/amd64 binary from 0.2.0 prints:
+
+```text
+redis-mcp-server version=0.2.0 commit=b519d1d9c7430c96abd07eea736d01c3e5f69676 date=2026-11-15T00:38:32-08:00
+```
+
+Other platform packages are published at the same version. This check executed the linux/amd64 binary only.
+
 ### Docker
 
-Mount the Redis configuration file read-only and keep the password in the runtime environment:
+The image entrypoint is `/usr/local/bin/redis-mcp-server mcp` and the user is `mcp`. `v0.2.0` contains runnable `linux/amd64` and `linux/arm64` images. The release workflow also tags that image as `latest` until a later stable tag moves `latest`.
+
+Mount the copy of `config.example.yaml`. The repository does not contain `redis-mcp.yaml`.
 
 ```bash
+cp config.example.yaml redis-mcp.yaml
 export MCP_REDIS_PASSWORD='your-redis-password'
 docker run --rm -i \
   --env MCP_REDIS_PASSWORD \
   --mount type=bind,src="$PWD/redis-mcp.yaml",dst=/etc/redis-mcp-server/config.yaml,readonly \
-  ghcr.io/futuretea/redis-mcp-server:vX.Y.Z \
+  ghcr.io/futuretea/redis-mcp-server:v0.2.0 \
   --config /etc/redis-mcp-server/config.yaml
 ```
 
-Both release entry points start MCP over stdio by default. Pass `--port 8080 --listen 0.0.0.0` after the release command to start HTTP in a container, and publish the port only to the network that should reach it.
+The container waits on stdio the same way `npx` does. To run `version` or `tools`, replace the entrypoint:
 
-## Configuration
+```bash
+docker run --rm --entrypoint /usr/local/bin/redis-mcp-server \
+  ghcr.io/futuretea/redis-mcp-server:v0.2.0 version
+```
 
-Redis topology is explicit. Password is read only from `MCP_REDIS_PASSWORD`; do not place it in YAML.
+The container command above was checked against the published image config. It was not executed here because this environment has no Docker daemon.
+
+### Build from a checkout
+
+```bash
+make build
+./bin/redis-mcp-server version
+./bin/redis-mcp-server tools list --config config.example.yaml
+```
+
+`tools list` does not connect to Redis. The table includes `redis_string` and omits `redis_string_write` while `write_enabled` is false. The version line from `make build` comes from `git describe` and can differ from `0.2.0`. Go, test, and release details are in [development and release](docs/development.md).
+
+## Configure Redis
+
+Keep the password in `MCP_REDIS_PASSWORD`. Do not add it to YAML. A `password` key in YAML is ignored.
+
+`config.example.yaml` is a valid file. Copy it, then change `redis.addresses`. You can skip the file when the environment supplies topology and addresses:
+
+```bash
+export MCP_REDIS_TOPOLOGY=standalone
+export MCP_REDIS_ADDRESSES=127.0.0.1:6379
+export MCP_REDIS_PASSWORD='your-redis-password'
+npx -y @futuretea/redis-mcp-server@0.2.0
+```
+
+For Sentinel, also set `MCP_REDIS_SENTINEL_MASTER`. Separate several addresses with a comma. A space does not split an address. `127.0.0.1:6379, 10.0.0.2:6379` is two addresses. `standalone` uses the first address. `cluster` uses every address as a seed. `sentinel` uses every address as a Sentinel endpoint.
+
+Precedence, TLS, database 0, and the rest of the fields are in the [reference](docs/reference.md).
 
 ```yaml
+port: 0
+listen: 127.0.0.1
+sse_base_url: ""
+log_level: info
+enabled_tools: []
+disabled_tools: []
+enabled_domains: []
+disabled_domains: []
 allow_unsafe_database_role: false
 redis:
-  topology: standalone # standalone | cluster | sentinel
+  topology: standalone
   addresses: ["127.0.0.1:6379"]
   username: ""
   tls: false
@@ -82,138 +134,59 @@ redis:
   write_enabled: false
 ```
 
-`allow_unsafe_database_role` defaults to false. The environment variable is `MCP_ALLOW_UNSAFE_DATABASE_ROLE`. Password remains `MCP_REDIS_PASSWORD` only.
+The block above is the values in [config.example.yaml](config.example.yaml). The tracked file also has comments for the environment names and for the commented-out `masking` object. Masking stays off while that object is commented out.
 
-Use `sentinel_master` for Sentinel. `addresses` lists cluster seeds for Cluster and Sentinel endpoints for Sentinel.
+## Call a tool
 
-### Service account
+`tools describe` prints the schema and does not connect.
 
-After the process connects, and before any tool runs a Redis command, startup reads the current user's ACL. It sends `PING`, `ACL WHOAMI`, `ACL GETUSER`, and `ACL CAT`. The process exits with `[redis_unsafe_service_role] database service role is not permitted` when any root rule or selector can run:
-
-- a command in the `@admin` category, including `CONFIG`, `DEBUG`, `SHUTDOWN`, `ACL SETUSER`, `BGSAVE`, `REPLICAOF`, `MODULE`, `MONITOR`, `CLIENT KILL`, and cluster administration subcommands such as `CLUSTER FAILOVER` and `CLUSTER RESET`
-- `FLUSHALL`, `FLUSHDB`, `SWAPDB`, or `MIGRATE`
-- server-side code and global function or script control: `@scripting`, including `EVAL`, `EVALSHA`, `FCALL`, `SCRIPT DEBUG`, `SCRIPT FLUSH`, `SCRIPT LOAD`, `SCRIPT KILL`, `FUNCTION FLUSH`, `FUNCTION DELETE`, `FUNCTION LOAD`, `FUNCTION RESTORE`, and `FUNCTION KILL`
-- `MEMORY PURGE`
-- every command in that server's `@dangerous` category. Redis 8 adds `TRIMSLOTS` and `BACKUP` there. They are not in `@admin` or `@scripting`, and `@write` and `@keyspace` grant `TRIMSLOTS`
-- `RANDOMKEY` and `SCAN`. Both return key names and do not take a key argument, so a key pattern does not apply to them
-- the whole `ACL`, `CLIENT`, `CLUSTER`, `FUNCTION`, `SCRIPT`, or `MEMORY` command
-
-These probe commands are not a rejection by themselves: `ACL WHOAMI`, `ACL GETUSER`, and `ACL CAT`. `ACL GETUSER` cannot be limited to the current username, so this account can also read every user's ACL password hash. That probe disclosure is separate from key names returned by `RANDOMKEY` or `SCAN`. Startup calls `ACL GETUSER` only for the authenticated user and does not log or return that reply. Cluster discovery commands such as `CLUSTER SLOTS`, `CLUSTER NODES`, and `CLUSTER SHARDS` are not a rejection, and neither is `MEMORY USAGE` or `CLIENT SETNAME`. The account must be allowed to run the probe, or startup fails with `[redis_privilege_probe_failed]` even when the opt-out is set. A refused connection fails with `[redis_connection_failed]` and is not skipped by the opt-out.
-
-An account limited to the read commands it needs, plus the probe commands, starts with the default configuration. No opt-out is required. `@read` includes `RANDOMKEY` and `SCAN`, so the read account also needs `-randomkey` and `-scan`. On Redis 6.2, `@read` includes `memory`, and `MEMORY PURGE` is not its own ACL name, so that account also needs `-memory`. The same shape works for a business account that grants the data categories and then revokes the global operations. `+@write` includes `FLUSHALL` and, on Redis 7, `FUNCTION FLUSH`, `FUNCTION DELETE`, `FUNCTION LOAD`, and `FUNCTION RESTORE`. On Redis 8 it also includes `TRIMSLOTS`. `+@connection` includes `CLIENT KILL`. `+@slow` and `+@scripting` include `EVAL` and `SCRIPT DEBUG`. Grant the broad category first, then revoke `@admin`, `@dangerous`, and `@scripting`, then revoke `RANDOMKEY`, `SCAN`, and the other individual global commands, then add the probe commands back. Redis 6.2 rejects unknown names such as `-function` and `-memory|purge`. Use `-memory` and `-@scripting` there. `-randomkey` and `-scan` are valid on Redis 6.2.
-
-```redis
-ACL SETUSER mcp-reader on >strong-password ~app:* resetchannels &
-  -@all
-  +@read
-  -@admin
-  -@dangerous
-  -randomkey
-  -scan
-  +ping
-  +acl|whoami
-  +acl|getuser
-  +acl|cat
+```bash
+./bin/redis-mcp-server tools describe redis_string --config config.example.yaml
+./bin/redis-mcp-server tools call redis_string --config config.example.yaml \
+  --params '{"operation":"get","args":{"key":"sample"}}'
 ```
 
-```redis
-ACL SETUSER mcp-app on >strong-password ~app:* resetchannels &
-  -@all
-  +@read +@write +@string +@hash +@list +@set +@sortedset +@stream +@fast +@keyspace +@connection
-  -@admin -@dangerous -@scripting
-  -flushall -flushdb -swapdb -migrate -memory|purge
-  -randomkey -scan
-  +ping +acl|whoami +acl|getuser +acl|cat
-  +cluster|slots +cluster|nodes +cluster|shards
+`tools call` connects. With no Redis at the example address, it exits non-zero and writes `[redis_connection_failed] connection failed` to stderr.
+
+Write tools appear only after `redis.write_enabled` is true or `MCP_REDIS_WRITE_ENABLED=true`. Enabling writes registers delete and trim operations. It is not a per-call approval step. Leave it false for a general-purpose client.
+
+`enabled_tools` selects whole tools. Enabling `redis_string` exposes every read operation of that tool, not one operation. Leave `redis_key` and `redis_observe` out of the list unless the client needs key names or keyspace metadata. `RANDOMKEY` and `SCAN` return key names from the whole keyspace.
+
+Use a Redis ACL account that can run the catalog and the startup probe, and that cannot run admin, flush, script, or keyless enumeration commands. The rejection list and the account shapes used by the startup test are in the [reference](docs/reference.md). `allow_unsafe_database_role` defaults to false. Set it only when you cannot create that account and you control the Redis instance.
+
+## Choose stdio or HTTP
+
+Prefer stdio for a local client. The `npx` and `docker run` commands above are stdio.
+
+For HTTP, set a port. The default listen address is `127.0.0.1`.
+
+```bash
+./bin/redis-mcp-server mcp --config redis-mcp.yaml --port 8080
 ```
 
-`allow_unsafe_database_role` defaults to `false`. Set it to `true` in the config file, or export `MCP_ALLOW_UNSAFE_DATABASE_ROLE=true`, only when you cannot provision a least-privilege account. The server logs a warning and skips this privilege rejection. A refused connection, a failed ACL probe, and every other startup check still stop startup. The Redis user can still run `FLUSHALL`, `CONFIG`, `DEBUG`, or `SHUTDOWN` outside the tool catalog: this server does not expose a raw command, but the account itself can. Enable the option only for a Redis instance you control.
+Streamable HTTP is `http://127.0.0.1:8080/mcp`. SSE is `http://127.0.0.1:8080/sse`. `GET http://127.0.0.1:8080/healthz` returns the body `healthy` after startup. `HEAD` returns `200` and no body. The process does not check an `Authorization` header.
 
-The warning is logged at warn level. HTTP mode shows it at the default `info` log level. Stdio mode keeps logs disabled so MCP output stays intact. Do not use the Redis `default` user. A standard server grants that user `+@all`.
+Inside a container, `127.0.0.1` is the container loopback. To publish the port, set `--listen 0.0.0.0` and publish it only on a network that should reach an unauthenticated process.
 
-## Output masking
-
-Masking is off when the `masking` object is absent, when `enabled` is omitted, or when `enabled` is false. Tool results, CLI output, and errors then keep their current JSON. Set `enabled` to true and at least one rule to remove configured field names and values from output. `MCP_MASKING_JSON` replaces the whole YAML object when the variable is present. An empty value is rejected. Unset leaves the YAML object in place.
-
-```yaml
-masking:
-  enabled: true
-  placeholder: "[masked]"
-  names: ["synthetic_field"]
-  name_patterns: ["token_.+"]
-  values: ["synthetic-token-value"]
-  value_patterns: ["sk_live_[0-9]+"]
+```bash
+docker run --rm -i \
+  -p 127.0.0.1:8080:8080 \
+  --env MCP_REDIS_PASSWORD \
+  --mount type=bind,src="$PWD/redis-mcp.yaml",dst=/etc/redis-mcp-server/config.yaml,readonly \
+  ghcr.io/futuretea/redis-mcp-server:v0.2.0 \
+  --config /etc/redis-mcp-server/config.yaml \
+  --port 8080 \
+  --listen 0.0.0.0
 ```
+
+Put TLS and authentication in front of any listener that other machines can reach.
+
+## Enable masking
+
+Masking is off in the example file. To turn it on, set `enabled` to true and at least one rule. `MCP_MASKING_JSON` replaces the whole YAML object when the variable is set.
 
 ```bash
 export MCP_MASKING_JSON='{"enabled":true,"names":["synthetic_field"],"values":["synthetic-token-value"]}'
 ```
 
-Name rules match a whole dynamic object key, hash field, or other data string. Value rules are substring matches on the original text, including one-character literals. They run once and do not search the placeholder. A matched string becomes the placeholder. A matched number, bool, or other non-string becomes JSON `null`. An existing null stays `null`, so null can be a missing Redis value or a redacted value, and the JSON type can change.
-
-Redis binary cells are masked from the original bytes, then both `utf8` and `base64` are written again from that result. A pair whose siblings disagree is rejected. Invalid UTF-8 stays in `base64` only. JSON objects and arrays stored as text are read as JSON, including escaped keys. `redis_key` `dump` is opaque. With an active policy it returns `[redis_masking_failed] result was not returned` and no payload. With masking off, `DUMP` is unchanged. `metadata.next_cursor` is a 16-byte continuation reference, not the stored key. If a rule matches that token, the page fails instead of returning a raw or rewritten cursor.
-
-Invalid masking configuration, including `enabled: true` with no rules, stops startup with `invalid masking config` and does not echo the document. Bounds, duplicate keys, and key collisions use the same fixed failure and no partial payload. The Redis command and its arguments are unchanged. HTTP debug logs record a route class (`mcp`, `sse`, `message`, or `other`) instead of the raw path or query.
-
-This covers the server's known Redis result shapes. It does not detect every private value, compressed payload, unknown encoding, or arbitrary PII.
-
-The copied engine is mysql-mcp-server commit `6c6f58a343ff61e5f1e220b5cbdff7899afd886d`. This server does not patch those rules. Name patterns are parsed on their own and then anchored in the syntax tree. `a)|(b` is invalid. `(?:a)|(b)` matches only the whole names `a` and `b`. One budget is shared across a whole Redis result. A base64 cell longer than the input cap is rejected before it is decoded, and the paired `utf8` sibling is not returned. A value-rule hit on a native number or bool replaces that whole value with JSON `null`. A JSON value is counted again as its container, so it can exhaust the budget before a plain string of the same size. RE2 returns the leftmost-first match and does not search a longer alternative after a shorter one matches. Those two are limits. Masking still does not detect every private value, compressed payload, unknown encoding, or arbitrary PII.
-
-## Production safety guide
-
-This server reduces the Redis capabilities exposed to an AI client; it is not an authentication gateway or a complete data-access policy. Read-only mode prevents mutations, but reads can still disclose data or consume Redis capacity.
-
-### Keep writes disabled by default
-
-Keep `redis.write_enabled: false` for untrusted or general-purpose AI clients. Enabling it registers mutation tools, including key deletion and collection trimming; it is not a per-request approval mode.
-
-### Expose the smallest useful tool set
-
-Use `enabled_tools` to expose only the tool families required by the client. Tool filtering is at the tool level, not the operation level: enabling `redis_string`, for example, exposes all of that tool's declared read operations. Do not expose `redis_key` or `redis_observe` to an untrusted client unless key discovery and keyspace metadata are required.
-
-```yaml
-enabled_tools:
-  - redis_string
-  - redis_hash
-disabled_tools:
-  - redis_key
-  - redis_observe
-```
-
-### Restrict the Redis account and keyspace
-
-Connect with a dedicated Redis ACL account. Grant it only the commands and key patterns needed by the selected tools; do not use an administrator or application-owner account. Startup rejects `@admin`, `@dangerous`, `@scripting`, `FLUSHALL`, `FLUSHDB`, `TRIMSLOTS`, `FUNCTION FLUSH`, `SCRIPT DEBUG`, `MEMORY PURGE`, `RANDOMKEY`, `SCAN`, `CONFIG`, `DEBUG`, `SHUTDOWN`, and the other commands listed under Service account unless `allow_unsafe_database_role` is set. A key pattern limits commands that name a key. It does not apply to keyless commands. `RANDOMKEY` and `SCAN` return key names from the whole keyspace, including names the pattern cannot `GET`. `DBSIZE` still counts those keys. `redis_key` `random_key` and `redis_observe` `scan` call `RANDOMKEY` and `SCAN`, so a tenant profile that revokes those commands cannot use those operations. `ACL GETUSER` remains a separate probe permission and is not a key-name listing.
-
-### Put HTTP and SSE behind an authenticated boundary
-
-Prefer stdio for local MCP clients. When using HTTP or SSE, place the server behind TLS, fail-closed authentication, network isolation, and request rate/concurrency limits. Do not expose the process directly to an untrusted network.
-
-### Bound enumeration and verify the deployed catalog
-
-`SCAN` does not take a key, so a key pattern does not limit it. A tenant profile revokes `SCAN` and `RANDOMKEY`. Where those commands remain granted, repeated `SCAN` requests can list key names outside that pattern. Each collection page is still bounded. Apply gateway quotas and monitoring for request rate, scan volume, latency, and errors. Before deployment, inspect the actual catalog:
-
-```bash
-./bin/redis-mcp-server tools list --config production.yaml
-```
-
-Confirm that no `*_write` tool is registered and that every listed tool is intentional. Also verify that the deployment boundary rejects unauthenticated requests and that the Redis ACL denies keys outside the intended scope.
-
-## Transports and deployment
-
-```bash
-./bin/redis-mcp-server mcp --config config.example.yaml
-./bin/redis-mcp-server mcp --config config.example.yaml --port 8080
-```
-
-Streamable HTTP and SSE remain available. If HTTP/SSE is publicly exposed, an external fail-closed authentication boundary must reject unauthenticated requests before they reach this process. This repository does not implement authentication, gateway integration, or authentication-header authorization.
-
-## Development
-
-```bash
-make test
-make lint
-make build
-make integration
-```
-
-`make integration` uses the pinned Redis 8.8.1 image in `testdata/redis/images.lock` to start standalone, Cluster, and Sentinel test topologies. Docker, image, network, compose, or integration-test failures make the target fail.
+Names, patterns, placeholder, limits, and the Redis cases that fail closed are in the [reference](docs/reference.md). Masking does not find every private value.

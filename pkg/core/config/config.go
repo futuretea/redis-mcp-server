@@ -99,7 +99,7 @@ func (c *StaticConfig) GetListenAddress() string {
 	return net.JoinHostPort(c.Listen, strconv.Itoa(c.Port))
 }
 
-// LoadConfig loads configuration from defaults, optional YAML, environment, and flags.
+// LoadConfig loads defaults, an optional YAML file, and MCP_ environment variables.
 func LoadConfig(configPath string, v *viper.Viper) (*StaticConfig, error) {
 	if v == nil {
 		v = viper.New()

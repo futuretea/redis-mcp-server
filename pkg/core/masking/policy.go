@@ -95,7 +95,7 @@ func (p Policy) MatchName(name string) bool {
 	return false
 }
 
-// ParseJSON parses MYSQL_MCP_MASKING_JSON. A present empty value is invalid.
+// ParseJSON parses one masking JSON document. A present empty value is invalid.
 func ParseJSON(raw string) (Policy, error) {
 	if strings.TrimSpace(raw) == "" {
 		return Policy{}, invalidConfig()
