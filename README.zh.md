@@ -111,7 +111,7 @@ export MCP_REDIS_PASSWORD='your-redis-password'
 npx -y @futuretea/redis-mcp-server@0.2.0
 ```
 
-Sentinel 还要设置 `MCP_REDIS_SENTINEL_MASTER`。多个地址用逗号分隔。`standalone` 使用第一个地址。`cluster` 把每个地址当作集群种子。`sentinel` 把每个地址当作 Sentinel 端点。
+Sentinel 还要设置 `MCP_REDIS_SENTINEL_MASTER`。多个地址用逗号分隔。空格不会把地址拆开。`127.0.0.1:6379, 10.0.0.2:6379` 是两个地址。`standalone` 使用第一个地址。`cluster` 把每个地址当作集群种子。`sentinel` 把每个地址当作 Sentinel 端点。
 
 优先级、TLS、数据库 0 和其他字段见[参考](docs/reference.zh.md)。
 

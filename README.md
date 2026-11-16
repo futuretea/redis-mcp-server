@@ -111,7 +111,7 @@ export MCP_REDIS_PASSWORD='your-redis-password'
 npx -y @futuretea/redis-mcp-server@0.2.0
 ```
 
-For Sentinel, also set `MCP_REDIS_SENTINEL_MASTER`. Separate several addresses with a comma. `standalone` uses the first address. `cluster` uses every address as a seed. `sentinel` uses every address as a Sentinel endpoint.
+For Sentinel, also set `MCP_REDIS_SENTINEL_MASTER`. Separate several addresses with a comma. A space does not split an address. `127.0.0.1:6379, 10.0.0.2:6379` is two addresses. `standalone` uses the first address. `cluster` uses every address as a seed. `sentinel` uses every address as a Sentinel endpoint.
 
 Precedence, TLS, database 0, and the rest of the fields are in the [reference](docs/reference.md).
 

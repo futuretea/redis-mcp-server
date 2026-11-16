@@ -23,7 +23,7 @@ A `password` field in YAML is ignored. The password is read from `MCP_REDIS_PASS
 
 `MCP_MASKING_JSON` is not a single field override. `LoadConfig` does the replacement. When the variable is present, that string is parsed and the YAML `masking` object is not used. `ParseJSON` only parses the text it is given. It does not read the environment. A blank value fails with `invalid masking config`. The CLI prints `load config: invalid masking config`. When the variable is unset, the YAML object is used. Commented-out YAML is the same as an absent object.
 
-List environment values are split on commas and on spaces. `MCP_REDIS_ADDRESSES=127.0.0.1:6379,10.0.0.2:6379` is two addresses. Do not put a space inside one address.
+List environment values are split on commas, and each item is trimmed. A space does not separate items. `MCP_REDIS_ADDRESSES=127.0.0.1:6379,10.0.0.2:6379` and `MCP_REDIS_ADDRESSES=127.0.0.1:6379, 10.0.0.2:6379` are two addresses. `MCP_REDIS_ADDRESSES=127.0.0.1:1 127.0.0.1:2` is one address. Standalone dials that whole string. The process then reports `dial tcp: address 127.0.0.1:1 127.0.0.1:2: too many colons in address` and `[redis_connection_failed] connection failed`. `MCP_ENABLED_TOOLS=redis_string, redis_hash` enables those two tools. `MCP_ENABLED_TOOLS=redis_string redis_hash` is one name, matches no tool, and `tools list` prints only the header. The same comma split applies to `MCP_DISABLED_TOOLS`, `MCP_ENABLED_DOMAINS`, and `MCP_DISABLED_DOMAINS`. `--enabled-tools redis_string,redis_hash` is two tools. One argument `redis_string redis_hash` registers none.
 
 A boolean field accepts a YAML boolean, or a string from the set `1`, `t`, `T`, `TRUE`, `true`, `True`, `0`, `f`, `F`, `FALSE`, `false`, and `False`. The 0.2.0 program treated those values of `MCP_REDIS_WRITE_ENABLED` as booleans. `yes`, `on`, `y`, `n`, `no`, and `off` are rejected. The CLI prints `load config: invalid config`. The same rejection happens for YAML `yes` or `on`. A quoted YAML string `"true"` uses that accepted set. An empty `MCP_REDIS_WRITE_ENABLED` left YAML `write_enabled: true` in place. `MCP_PORT` is an integer.
 
@@ -59,7 +59,7 @@ When `enabled_tools` is non-empty, a tool must be in that list. `disabled_tools`
 
 ## Redis topology
 
-`redis.topology` is `standalone`, `cluster`, or `sentinel` after trimming and lowercasing. Any other value fails with `redis.topology must be standalone, cluster, or sentinel`.
+`redis.topology` is trimmed and lowercased. A missing, empty, or whitespace-only value fails with `load config: redis.topology must be explicitly set to standalone, cluster, or sentinel`. A non-empty value other than `standalone`, `cluster`, or `sentinel`, such as `nope`, fails with `load config: redis.topology must be standalone, cluster, or sentinel`.
 
 `standalone` dials `redis.addresses` element 0. Later addresses are ignored.
 
@@ -173,7 +173,7 @@ The rejection text is `[redis_unsafe_service_role] database service role is not 
 
 `mcp` with `port` 0 disables zerolog before the check, so that warning is not written by zerolog. `mcp` with a non-zero port writes zerolog to stderr at `log_level`. The default `info` level includes `warn`. `tools call` does not disable zerolog. The Redis client dial line is separate from zerolog and can still appear on stderr.
 
-The live startup test builds a reader account as `-@all +@read -@admin -@dangerous -randomkey -scan` plus `+ping +acl|whoami +acl|getuser +acl|cat`. When the server reports a major version below 7, that test also revokes `memory`. The app account in the same test adds the data categories, then revokes `@admin`, `@dangerous`, `@scripting`, `flushall`, `flushdb`, `swapdb`, `migrate`, `memory|purge`, `randomkey`, and `scan`, and adds `cluster|slots`, `cluster|nodes`, and `cluster|shards`. The repository workflows do not set `REDIS_MATRIX_BINARIES`, so that matrix is not part of `make ci`.
+When the live startup test sees major version 7 or greater, the reader account is `-@all +@read -@admin -@dangerous -randomkey -scan` plus `+ping +acl|whoami +acl|getuser +acl|cat`. That shape does not revoke `memory`. The app account in that same branch grants the data categories, then revokes `@admin`, `@dangerous`, `@scripting`, `flushall`, `flushdb`, `swapdb`, `migrate`, `memory|purge`, `randomkey`, and `scan`, and adds `cluster|slots`, `cluster|nodes`, and `cluster|shards`. When the reported major version is below 7, the test source revokes the whole `memory` command on both the reader account and the app account, and the app account does not add those cluster subcommands. The repository workflows do not set `REDIS_MATRIX_BINARIES`, so `make ci` does not run this test. The below-7 branch is source text, not a Redis version executed by CI.
 
 `TRIMSLOTS` is in the hardcoded rejection list. The startup comment records that Redis 8 also places `TRIMSLOTS` and `BACKUP` in `@dangerous`, and that `@write` and `@keyspace` grant `TRIMSLOTS`. `BACKUP` is rejected when the connected server reports it in `@dangerous`. It is not in the hardcoded name list.
 

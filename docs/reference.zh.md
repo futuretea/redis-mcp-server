@@ -23,7 +23,7 @@ YAML 中的 `password` 字段被忽略。构造客户端时从 `MCP_REDIS_PASSWO
 
 `MCP_MASKING_JSON` 不是单个字段覆盖。替换由 `LoadConfig` 完成。变量存在时，解析该字符串，并且不使用 YAML 的 `masking` 对象。`ParseJSON` 只解析交给它的文本。它不读取环境变量。空白值失败，错误是 `invalid masking config`。CLI 打印 `load config: invalid masking config`。变量未设置时使用 YAML 对象。注释掉的 YAML 和缺少对象相同。
 
-列表环境变量按逗号和空格拆分。`MCP_REDIS_ADDRESSES=127.0.0.1:6379,10.0.0.2:6379` 是两个地址。不要在一个地址里放空格。
+列表环境变量按逗号拆分，然后去掉每一项两端的空白。空格不会把一项拆开。`MCP_REDIS_ADDRESSES=127.0.0.1:6379,10.0.0.2:6379` 和 `MCP_REDIS_ADDRESSES=127.0.0.1:6379, 10.0.0.2:6379` 是两个地址。`MCP_REDIS_ADDRESSES=127.0.0.1:1 127.0.0.1:2` 是一个地址。standalone 会拨号这整段字符串。进程随后报告 `dial tcp: address 127.0.0.1:1 127.0.0.1:2: too many colons in address` 和 `[redis_connection_failed] connection failed`。`MCP_ENABLED_TOOLS=redis_string, redis_hash` 启用这两个工具。`MCP_ENABLED_TOOLS=redis_string redis_hash` 是一个名称，不匹配任何工具，`tools list` 只打印表头。`MCP_DISABLED_TOOLS`、`MCP_ENABLED_DOMAINS` 和 `MCP_DISABLED_DOMAINS` 使用同样的逗号拆分。`--enabled-tools redis_string,redis_hash` 是两个工具。一个参数 `redis_string redis_hash` 不会注册任何工具。
 
 布尔字段接受 YAML 布尔值，或字符串 `1`、`t`、`T`、`TRUE`、`true`、`True`、`0`、`f`、`F`、`FALSE`、`false` 和 `False`。0.2.0 程序把 `MCP_REDIS_WRITE_ENABLED` 的这些值当作布尔值。`yes`、`on`、`y`、`n`、`no` 和 `off` 会被拒绝。CLI 打印 `load config: invalid config`。YAML 中的 `yes` 或 `on` 同样被拒绝。带引号的 YAML 字符串 `"true"` 使用同一组可接受拼写。空的 `MCP_REDIS_WRITE_ENABLED` 不会改变 YAML 里的 `write_enabled: true`。`MCP_PORT` 是整数。
 
@@ -59,7 +59,7 @@ YAML 中的 `password` 字段被忽略。构造客户端时从 `MCP_REDIS_PASSWO
 
 ## Redis topology
 
-`redis.topology` 在去掉空白并转成小写后是 `standalone`、`cluster` 或 `sentinel`。其他值失败，错误是 `redis.topology must be standalone, cluster, or sentinel`。
+`redis.topology` 会去掉两端空白并转成小写。缺失、空值或只有空白时失败，错误是 `load config: redis.topology must be explicitly set to standalone, cluster, or sentinel`。非空且不是 `standalone`、`cluster` 或 `sentinel` 的值，例如 `nope`，失败，错误是 `load config: redis.topology must be standalone, cluster, or sentinel`。
 
 `standalone` 拨号 `redis.addresses` 的第 0 个元素。后面的地址被忽略。
 
@@ -173,7 +173,7 @@ key pattern 不适用于 `RANDOMKEY` 或 `SCAN`。`redis_key` 的 `random_key` �
 
 `port` 为 0 的 `mcp` 在检查前关闭 zerolog，因此 zerolog 不写这条警告。非零端口的 `mcp` 按 `log_level` 把 zerolog 写到 stderr。默认 `info` 级别包含 `warn`。`tools call` 不关闭 zerolog。Redis 客户端的拨号行独立于 zerolog，仍可能出现在 stderr。
 
-现场启动测试把读取账号建成 `-@all +@read -@admin -@dangerous -randomkey -scan`，再加上 `+ping +acl|whoami +acl|getuser +acl|cat`。服务器报告的主版本低于 7 时，该测试还撤销 `memory`。同一测试中的应用账号先加入数据类别，再撤销 `@admin`、`@dangerous`、`@scripting`、`flushall`、`flushdb`、`swapdb`、`migrate`、`memory|purge`、`randomkey` 和 `scan`，并加入 `cluster|slots`、`cluster|nodes` 和 `cluster|shards`。仓库工作流不设置 `REDIS_MATRIX_BINARIES`，因此该矩阵不是 `make ci` 的一部分。
+现场启动测试看到主版本大于或等于 7 时，读取账号是 `-@all +@read -@admin -@dangerous -randomkey -scan`，再加上 `+ping +acl|whoami +acl|getuser +acl|cat`。这个形状不撤销 `memory`。同一分支里的应用账号先授予数据类别，再撤销 `@admin`、`@dangerous`、`@scripting`、`flushall`、`flushdb`、`swapdb`、`migrate`、`memory|purge`、`randomkey` 和 `scan`，并加入 `cluster|slots`、`cluster|nodes` 和 `cluster|shards`。报告的主版本低于 7 时，测试源码在读取账号和应用账号上都撤销整个 `memory` 命令，并且应用账号不加入那些 cluster 子命令。仓库工作流不设置 `REDIS_MATRIX_BINARIES`，因此 `make ci` 不运行这个测试。低于 7 的分支是源码文本，不是 CI 执行过的 Redis 版本。
 
 `TRIMSLOTS` 在硬编码拒绝列表中。启动注释记录 Redis 8 也把 `TRIMSLOTS` 和 `BACKUP` 放在 `@dangerous` 中，并且 `@write` 和 `@keyspace` 授予 `TRIMSLOTS`。连接的服务器在 `@dangerous` 中报告 `BACKUP` 时，`BACKUP` 会被拒绝。它不在硬编码名称列表中。
 

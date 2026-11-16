@@ -14,7 +14,9 @@
 # MCP_ALLOW_UNSAFE_DATABASE_ROLE, MCP_REDIS_TOPOLOGY, MCP_REDIS_ADDRESSES,
 # MCP_REDIS_USERNAME, MCP_REDIS_TLS, MCP_REDIS_SENTINEL_MASTER,
 # MCP_REDIS_WRITE_ENABLED.
-# MCP_REDIS_ADDRESSES is a comma-separated or space-separated host:port list.
+# List values are split on commas, then each item is trimmed. A space does not
+# split an item. MCP_REDIS_ADDRESSES=127.0.0.1:6379, 10.0.0.2:6379 is two
+# addresses. MCP_ENABLED_TOOLS=redis_string redis_hash is one name.
 # MCP_MASKING_JSON, when set, replaces the masking object. An empty value is rejected.
 # When that variable is unset, the object in this file is used.
 
