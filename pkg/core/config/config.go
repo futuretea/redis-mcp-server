@@ -99,7 +99,11 @@ func (c *StaticConfig) GetListenAddress() string {
 	return net.JoinHostPort(c.Listen, strconv.Itoa(c.Port))
 }
 
-// LoadConfig loads configuration from defaults, optional YAML, environment, and flags.
+// LoadConfig loads defaults, an optional YAML file, and MCP_ environment
+// variables. Flags override those sources when the caller has bound the
+// flags on v. An unbound flag default does not erase a file or environment
+// value. MCP_MASKING_JSON is read separately and replaces the YAML masking
+// object when the variable is present.
 func LoadConfig(configPath string, v *viper.Viper) (*StaticConfig, error) {
 	if v == nil {
 		v = viper.New()

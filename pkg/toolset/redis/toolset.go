@@ -28,7 +28,7 @@ type Call struct {
 	Write     bool
 }
 
-// Toolset provides the Redis data-plane tools declared by the proposal.
+// Toolset provides the Redis data-plane tools declared by the operation contracts.
 type Toolset struct {
 	adapter      Adapter
 	writeEnabled bool
