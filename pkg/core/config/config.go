@@ -145,10 +145,19 @@ func LoadConfig(configPath string, v *viper.Viper) (*StaticConfig, error) {
 
 	cfg.Listen = strings.TrimSpace(cfg.Listen)
 	cfg.LogLevel = strings.ToLower(strings.TrimSpace(cfg.LogLevel))
-	cfg.EnabledTools = normalizeStringSlice(cfg.EnabledTools)
-	cfg.DisabledTools = normalizeStringSlice(cfg.DisabledTools)
-	cfg.EnabledDomains = normalizeStringSlice(cfg.EnabledDomains)
-	cfg.DisabledDomains = normalizeStringSlice(cfg.DisabledDomains)
+	var err error
+	if cfg.EnabledTools, err = normalizeNameList("enabled_tools", cfg.EnabledTools); err != nil {
+		return nil, err
+	}
+	if cfg.DisabledTools, err = normalizeNameList("disabled_tools", cfg.DisabledTools); err != nil {
+		return nil, err
+	}
+	if cfg.EnabledDomains, err = normalizeNameList("enabled_domains", cfg.EnabledDomains); err != nil {
+		return nil, err
+	}
+	if cfg.DisabledDomains, err = normalizeNameList("disabled_domains", cfg.DisabledDomains); err != nil {
+		return nil, err
+	}
 
 	if err := cfg.Validate(); err != nil {
 		return nil, err
@@ -169,6 +178,17 @@ func loadMaskingPolicy(v *viper.Viper) (masking.Policy, error) {
 		return masking.Disabled(), nil
 	}
 	return masking.ParseRaw(v.Get("masking"))
+}
+
+func normalizeNameList(field string, values []string) ([]string, error) {
+	if len(values) == 0 {
+		return []string{}, nil
+	}
+	normalized := normalizeStringSlice(values)
+	if len(normalized) == 0 {
+		return nil, fmt.Errorf("%s contains no names", field)
+	}
+	return normalized, nil
 }
 
 func normalizeStringSlice(values []string) []string {
